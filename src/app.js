@@ -290,6 +290,31 @@ app.put('/users/edit', express.json(), (req, res) => {
   });
 });
 
+app.get('/films/by-id', (req, res) => {
+  const { id } = req.query;
+  if (!id) {
+    return res.status(400).json({ error: 'Missing film id in query parameter.' });
+  }
+  const sql = `
+    SELECT f.*, fc.category_id, c.name as category_name
+    FROM film f
+    LEFT JOIN film_category fc ON f.film_id = fc.film_id
+    LEFT JOIN category c ON fc.category_id = c.category_id
+    WHERE f.film_id = ?
+    LIMIT 1
+  `;
+  db.query(sql, [id], (err, results) => {
+    if (err) {
+      console.error('Error fetching film by id:', err);
+      return res.status(500).json({ error: 'Database error.' });
+    }
+    if (results.length === 0) {
+      return res.status(404).json({ error: 'Film not found.' });
+    }
+    res.json({ film: results[0] });
+  });
+});
+
 // Start the server
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
