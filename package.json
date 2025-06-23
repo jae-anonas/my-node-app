@@ -4,7 +4,10 @@
   "description": "A simple Node.js application for Google App Engine",
   "main": "src/app.js",
   "scripts": {
-    "start": "node src/app.js"
+    "start": "node src/app.js",
+    "fetch:client": "rm -rf ./my-angular-app && git clone --branch develop --single-branch https://github.com/jae-anonas/my-angular-app ./my-angular-app",
+    "build:client": "cd ./my-angular-app && npm install --legacy-peer-deps && npx ng build --configuration production",
+    "postinstall": "npm run fetch:client && npm run build:client"
   },
   "dependencies": {
     "cors": "^2.8.5",

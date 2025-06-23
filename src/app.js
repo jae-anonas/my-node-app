@@ -4,6 +4,7 @@ const express = require('express');
 const mysql = require('mysql2');
 const crypto = require('crypto');
 var cors = require('cors');
+const path = require('path');
 
 // Initialize Express app
 const app = express();
@@ -16,6 +17,22 @@ const db = mysql.createPool({
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_DATABASE
+});
+
+// Serve static files from Angular build output
+app.use(express.static(path.join(__dirname, '../my-angular-app/dist/my-angular-app/browser')));
+
+// Fallback to index.html for Angular client-side routes (not for static files or API)
+app.get('*', (req, res, next) => {
+  if (
+    req.path.startsWith('/api') ||
+    req.path.startsWith('/films') ||
+    req.path.startsWith('/users') ||
+    req.path.includes('.') // skip static file requests
+  ) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, '../dist/my-angular-app/browser/index.html'));
 });
 
 // Define a route to handle SQL queries
