@@ -1,14 +1,16 @@
-const Sequelize = require('sequelize');
-module.exports = function(sequelize, DataTypes) {
-  return sequelize.define('film', {
+const { DataTypes, Model } = require('sequelize');
+
+module.exports = (sequelize) => {
+  class Film extends Model {}
+  Film.init({
     film_id: {
       autoIncrement: true,
-      type: DataTypes.SMALLINT.UNSIGNED,
+      type: DataTypes.INTEGER,
       allowNull: false,
       primaryKey: true
     },
     title: {
-      type: DataTypes.STRING(128),
+      type: DataTypes.STRING(255),
       allowNull: false
     },
     description: {
@@ -16,93 +18,58 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true
     },
     release_year: {
-      type: DataTypes.DATE,
+      type: DataTypes.INTEGER,
       allowNull: true
     },
     language_id: {
-      type: DataTypes.TINYINT.UNSIGNED,
-      allowNull: false,
-      references: {
-        model: 'language',
-        key: 'language_id'
-      }
+      type: DataTypes.INTEGER,
+      allowNull: false
     },
     original_language_id: {
-      type: DataTypes.TINYINT.UNSIGNED,
-      allowNull: true,
-      references: {
-        model: 'language',
-        key: 'language_id'
-      }
+      type: DataTypes.INTEGER,
+      allowNull: true
     },
     rental_duration: {
-      type: DataTypes.TINYINT.UNSIGNED,
-      allowNull: false,
-      defaultValue: 3
+      type: DataTypes.INTEGER,
+      allowNull: false
     },
     rental_rate: {
       type: DataTypes.DECIMAL(4,2),
-      allowNull: false,
-      defaultValue: 4.99
+      allowNull: false
     },
     length: {
-      type: DataTypes.SMALLINT.UNSIGNED,
+      type: DataTypes.INTEGER,
       allowNull: true
     },
     replacement_cost: {
       type: DataTypes.DECIMAL(5,2),
-      allowNull: false,
-      defaultValue: 19.99
+      allowNull: false
     },
     rating: {
-      type: DataTypes.ENUM('G','PG','PG-13','R','NC-17'),
-      allowNull: true,
-      defaultValue: "G"
+      type: DataTypes.STRING(10),
+      allowNull: true
     },
     special_features: {
-      type: "SET('TRAILERS','COMMENTARIES','DELETED SCENES','BEHIND THE SCENES')",
+      type: DataTypes.STRING(255),
       allowNull: true
     },
     last_update: {
       type: DataTypes.DATE,
-      allowNull: false,
-      defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
+      allowNull: false
     }
   }, {
     sequelize,
+    modelName: 'Film',
     tableName: 'film',
-    hasTrigger: true,
-    timestamps: false,
-    indexes: [
-      {
-        name: "PRIMARY",
-        unique: true,
-        using: "BTREE",
-        fields: [
-          { name: "film_id" },
-        ]
-      },
-      {
-        name: "idx_title",
-        using: "BTREE",
-        fields: [
-          { name: "title" },
-        ]
-      },
-      {
-        name: "idx_fk_language_id",
-        using: "BTREE",
-        fields: [
-          { name: "language_id" },
-        ]
-      },
-      {
-        name: "idx_fk_original_language_id",
-        using: "BTREE",
-        fields: [
-          { name: "original_language_id" },
-        ]
-      },
-    ]
+    timestamps: false
   });
+  Film.associate = (models) => {
+    Film.belongsToMany(models.Category, {
+      through: models.FilmCategory,
+      foreignKey: 'film_id',
+      otherKey: 'category_id',
+      as: 'categories'
+    });
+  };
+  return Film;
 };

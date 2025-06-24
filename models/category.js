@@ -1,9 +1,11 @@
-const Sequelize = require('sequelize');
-module.exports = function(sequelize, DataTypes) {
-  return sequelize.define('category', {
+const { DataTypes, Model } = require('sequelize');
+
+module.exports = (sequelize) => {
+  class Category extends Model {}
+  Category.init({
     category_id: {
       autoIncrement: true,
-      type: DataTypes.TINYINT.UNSIGNED,
+      type: DataTypes.INTEGER,
       allowNull: false,
       primaryKey: true
     },
@@ -13,22 +15,21 @@ module.exports = function(sequelize, DataTypes) {
     },
     last_update: {
       type: DataTypes.DATE,
-      allowNull: false,
-      defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
+      allowNull: false
     }
   }, {
     sequelize,
+    modelName: 'Category',
     tableName: 'category',
-    timestamps: false,
-    indexes: [
-      {
-        name: "PRIMARY",
-        unique: true,
-        using: "BTREE",
-        fields: [
-          { name: "category_id" },
-        ]
-      },
-    ]
+    timestamps: false
   });
+  Category.associate = (models) => {
+    Category.belongsToMany(models.Film, {
+      through: models.FilmCategory,
+      foreignKey: 'category_id',
+      otherKey: 'film_id',
+      as: 'films'
+    });
+  };
+  return Category;
 };

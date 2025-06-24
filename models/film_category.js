@@ -1,50 +1,31 @@
-const Sequelize = require('sequelize');
-module.exports = function(sequelize, DataTypes) {
-  return sequelize.define('film_category', {
+const { DataTypes, Model } = require('sequelize');
+
+module.exports = (sequelize) => {
+  class FilmCategory extends Model {}
+  FilmCategory.init({
     film_id: {
-      type: DataTypes.SMALLINT.UNSIGNED,
+      type: DataTypes.INTEGER,
       allowNull: false,
-      primaryKey: true,
-      references: {
-        model: 'film',
-        key: 'film_id'
-      }
+      primaryKey: true
     },
     category_id: {
-      type: DataTypes.TINYINT.UNSIGNED,
+      type: DataTypes.INTEGER,
       allowNull: false,
-      primaryKey: true,
-      references: {
-        model: 'category',
-        key: 'category_id'
-      }
+      primaryKey: true
     },
     last_update: {
       type: DataTypes.DATE,
-      allowNull: false,
-      defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
+      allowNull: false
     }
   }, {
     sequelize,
+    modelName: 'FilmCategory',
     tableName: 'film_category',
-    timestamps: false,
-    indexes: [
-      {
-        name: "PRIMARY",
-        unique: true,
-        using: "BTREE",
-        fields: [
-          { name: "film_id" },
-          { name: "category_id" },
-        ]
-      },
-      {
-        name: "fk_film_category_category",
-        using: "BTREE",
-        fields: [
-          { name: "category_id" },
-        ]
-      },
-    ]
+    timestamps: false
   });
+  FilmCategory.associate = (models) => {
+    FilmCategory.belongsTo(models.Film, { foreignKey: 'film_id', as: 'film' });
+    FilmCategory.belongsTo(models.Category, { foreignKey: 'category_id', as: 'category' });
+  };
+  return FilmCategory;
 };

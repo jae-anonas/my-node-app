@@ -6,6 +6,20 @@ const crypto = require('crypto');
 var cors = require('cors');
 const path = require('path');
 
+// Sequelize setup
+const { Sequelize } = require('sequelize');
+const UserModel = require('../models/user');
+const sequelize = new Sequelize(
+  process.env.DB_DATABASE,
+  process.env.DB_USER,
+  process.env.DB_PASSWORD,
+  {
+    host: process.env.DB_HOST,
+    dialect: 'mysql'
+  }
+);
+const User = UserModel(sequelize);
+
 // Initialize Express app
 const app = express();
 app.use(cors());
@@ -49,32 +63,30 @@ app.get('/query', (req, res) => {
   });
 });
 
-app.post('/signin', express.json(), (req, res) => {
+app.post('/signin', express.json(), async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
-
   // Hash the password using SHA-256
   console.log(`Attempting login for user: ${username}`);
   const hash = crypto.createHash('sha256').update(password).digest('hex');
   console.log(`Hashed password for user ${username}: ${hash}`);
-  const sql = 'SELECT * FROM user WHERE name = ? AND password_hash = ? LIMIT 1';
-  db.query(sql, [username, hash], (err, results) => {
-    if (err) {
-      console.error('Error during login:', err);
-      return res.status(500).json({ error: 'Database error.' });
-    }
-    if (results.length === 1) {
+  try {
+    const user = await User.findOne({ where: { name: username, password_hash: hash } });
+    if (user) {
       // Login successful
       console.log(`User ${username} logged in successfully.`);
-      return res.json({ success: true, message: 'Login successful.', userData: results[0] });
+      return res.json({ success: true, message: 'Login successful.', userData: user });
     } else {
       // Login failed
       console.log(`Login failed for user ${username}.`);
       return res.status(401).json({ success: false, message: 'Invalid credentials.' });
     }
-  });
+  } catch (err) {
+    console.error('Error during login:', err);
+    return res.status(500).json({ error: 'Database error.' });
+  }
 });
 
 app.post('/signup', express.json(), (req, res) => {

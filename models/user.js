@@ -1,6 +1,8 @@
-const Sequelize = require('sequelize');
-module.exports = function(sequelize, DataTypes) {
-  return sequelize.define('user', {
+const { DataTypes, Model } = require('sequelize');
+
+module.exports = (sequelize) => {
+  class User extends Model {}
+  User.init({
     id: {
       autoIncrement: true,
       type: DataTypes.INTEGER,
@@ -14,7 +16,7 @@ module.exports = function(sequelize, DataTypes) {
     email: {
       type: DataTypes.STRING(255),
       allowNull: false,
-      unique: "email"
+      unique: true
     },
     password_hash: {
       type: DataTypes.STRING(255),
@@ -38,25 +40,25 @@ module.exports = function(sequelize, DataTypes) {
     }
   }, {
     sequelize,
+    modelName: 'User',
     tableName: 'user',
     timestamps: true,
+    createdAt: 'created_at',
+    updatedAt: 'updated_at',
     indexes: [
       {
         name: "PRIMARY",
         unique: true,
         using: "BTREE",
-        fields: [
-          { name: "id" },
-        ]
+        fields: ["id"]
       },
       {
         name: "email",
         unique: true,
         using: "BTREE",
-        fields: [
-          { name: "email" },
-        ]
-      },
+        fields: ["email"]
+      }
     ]
   });
+  return User;
 };
