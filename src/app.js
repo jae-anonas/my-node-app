@@ -173,214 +173,138 @@ app.put('/users/edit', express.json(), async (req, res) => {
   }
 });
 
-app.get('/films', (req, res) => {
-  // Pagination parameters
+// /films endpoint using Sequelize
+app.get('/films', async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const pageSize = parseInt(req.query.pageSize) || 10;
   const offset = (page - 1) * pageSize;
-
-  // Query to get films with their category name
-  const sql = `
-    SELECT f.*, fc.category_id, c.name as category_name
-    FROM film f
-    LEFT JOIN film_category fc ON f.film_id = fc.film_id
-    LEFT JOIN category c ON fc.category_id = c.category_id
-    LIMIT ? OFFSET ?
-  `;
-
-  db.query(sql, [pageSize, offset], (err, results) => {
-    if (err) {
-      console.error('Error fetching films:', err);
-      return res.status(500).json({ error: 'Database error.' });
-    }
+  try {
+    const { count, rows } = await Film.findAndCountAll({
+      include: [{
+        model: Category,
+        as: 'categories',
+        through: { attributes: [] },
+        attributes: ['category_id', 'name']
+      }],
+      limit: pageSize,
+      offset
+    });
     res.json({
       page,
       pageSize,
-      films: results
+      total: count,
+      films: rows
     });
-  });
+  } catch (err) {
+    console.error('Error fetching films:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
 });
 
-app.get('/films/search', (req, res) => {
-  // Filters from query params
+// /films/search endpoint using Sequelize
+app.get('/films/search', async (req, res) => {
   const { title, category, minYear, maxYear, rating, page = 1, pageSize = 10 } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(pageSize);
-
-  // Build dynamic WHERE clauses
-  let whereClauses = [];
-  let params = [];
-
-  if (title) {
-    whereClauses.push('f.title LIKE ?');
-    params.push(`%${title}%`);
-  }
+  let where = {};
+  if (title) where.title = { [Sequelize.Op.like]: `%${title}%` };
+  if (minYear) where.release_year = { ...(where.release_year || {}), [Sequelize.Op.gte]: minYear };
+  if (maxYear) where.release_year = { ...(where.release_year || {}), [Sequelize.Op.lte]: maxYear };
+  if (rating) where.rating = rating;
+  let categoryWhere = undefined;
   if (category) {
-    whereClauses.push('c.name = ?');
-    params.push(category);
-  }
-  if (minYear) {
-    whereClauses.push('f.release_year >= ?');
-    params.push(minYear);
-  }
-  if (maxYear) {
-    whereClauses.push('f.release_year <= ?');
-    params.push(maxYear);
-  }
-  if (rating) {
-    whereClauses.push('f.rating = ?');
-    params.push(rating);
-  }
-
-  let where = whereClauses.length ? 'WHERE ' + whereClauses.join(' OR ') : '';
-
-  const sql = `
-    SELECT f.*, fc.category_id, c.name as category_name
-    FROM film f
-    LEFT JOIN film_category fc ON f.film_id = fc.film_id
-    LEFT JOIN category c ON fc.category_id = c.category_id
-    ${where}
-    LIMIT ? OFFSET ?
-  `;
-
-  const countSql = `
-    SELECT COUNT(*) as total
-    FROM film f
-    LEFT JOIN film_category fc ON f.film_id = fc.film_id
-    LEFT JOIN category c ON fc.category_id = c.category_id
-    ${where}
-  `;
-
-  // Get total count first
-  db.query(countSql, params, (err, countResults) => {
-    if (err) {
-      console.error('Error fetching film count:', err);
-      return res.status(500).json({ error: 'Database error.' });
+    // Support comma-separated or array for multiple categories
+    let categories = Array.isArray(category) ? category : category.split(',').map(c => c.trim()).filter(Boolean);
+    if (categories.length > 1) {
+      categoryWhere = { [Sequelize.Op.or]: categories.map(name => ({ name })) };
+    } else if (categories.length === 1) {
+      categoryWhere = { name: categories[0] };
     }
-    const total = countResults[0].total;
-    // Add pagination params for main query
-    db.query(sql, [...params, parseInt(pageSize), offset], (err, results) => {
-      if (err) {
-        console.error('Error searching films:', err);
-        return res.status(500).json({ error: 'Database error.' });
-      }
-      res.json({
-        page: parseInt(page),
-        pageSize: parseInt(pageSize),
-        total,
-        films: results
-      });
+  }
+  try {
+    const { count, rows } = await Film.findAndCountAll({
+      where,
+      include: [{
+        model: Category,
+        as: 'categories',
+        where: categoryWhere,
+        through: { attributes: [] },
+        attributes: ['category_id', 'name']
+      }],
+      limit: parseInt(pageSize),
+      offset
     });
-  });
-});
-
-app.post('/films/by-categories', express.json(), async (req, res) => {
-  const { categories, limit } = req.body;
-  if (!Array.isArray(categories) || categories.length === 0) {
-    return res.status(400).json({ error: 'categories must be a non-empty array of category names.' });
-  }
-  const filmsByCategory = [];
-  const filmLimit = parseInt(limit) || 5;
-
-  // Helper to run a query and return a promise
-  function queryAsync(sql, params) {
-    return new Promise((resolve, reject) => {
-      db.query(sql, params, (err, results) => {
-        if (err) reject(err);
-        else resolve(results);
-      });
+    res.json({
+      page: parseInt(page),
+      pageSize: parseInt(pageSize),
+      total: count,
+      films: rows
     });
-  }
-
-  try {
-    for (const category of categories) {
-      const sql = `
-        SELECT f.*, fc.category_id, c.name as category_name
-        FROM film f
-        LEFT JOIN film_category fc ON f.film_id = fc.film_id
-        LEFT JOIN category c ON fc.category_id = c.category_id
-        WHERE c.name = ?
-        LIMIT ?
-      `;
-      const films = await queryAsync(sql, [category, filmLimit]);
-      filmsByCategory.push({ category, films });
-    }
-    res.json(filmsByCategory);
   } catch (err) {
-    console.error('Error fetching films by categories:', err);
+    console.error('Error searching films:', err);
     res.status(500).json({ error: 'Database error.' });
   }
 });
 
-app.get('/users', async (req, res) => {
-  try {
-    const users = await User.findAll();
-    res.json(users);
-  } catch (err) {
-    console.error('Error fetching users:', err);
-    res.status(500).json({ error: 'Database error.' });
-  }
-});
-
-app.get('/users/by-id', async (req, res) => {
-  const { id } = req.query;
-  if (!id) {
-    return res.status(400).json({ error: 'Missing user id in query parameter.' });
-  }
-  try {
-    const user = await User.findByPk(id);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found.' });
-    }
-    res.json({ user });
-  } catch (err) {
-    console.error('Error fetching user by id:', err);
-    res.status(500).json({ error: 'Database error.' });
-  }
-});
-
-app.put('/users/edit', express.json(), async (req, res) => {
-  const { id, name, email, first_name, last_name, role } = req.body;
-  if (!id) {
-    return res.status(400).json({ error: 'User id is required.' });
-  }
-  try {
-    const [affectedRows] = await User.update(
-      { name, email, first_name, last_name, role },
-      { where: { id } }
-    );
-    if (affectedRows === 0) {
-      return res.status(404).json({ error: 'User not found.' });
-    }
-    res.json({ success: true, message: 'User updated successfully.' });
-  } catch (err) {
-    console.error('Error updating user:', err);
-    res.status(500).json({ error: 'Database error.' });
-  }
-});
-
-app.get('/films/by-id', (req, res) => {
+// /films/by-id endpoint using Sequelize
+app.get('/films/by-id', async (req, res) => {
   const { id } = req.query;
   if (!id) {
     return res.status(400).json({ error: 'Missing film id in query parameter.' });
   }
-  const sql = `
-    SELECT f.*, fc.category_id, c.name as category_name
-    FROM film f
-    LEFT JOIN film_category fc ON f.film_id = fc.film_id
-    LEFT JOIN category c ON fc.category_id = c.category_id
-    WHERE f.film_id = ?
-    LIMIT 1
-  `;
-  db.query(sql, [id], (err, results) => {
-    if (err) {
-      console.error('Error fetching film by id:', err);
-      return res.status(500).json({ error: 'Database error.' });
-    }
-    if (results.length === 0) {
+  try {
+    const film = await Film.findByPk(id, {
+      include: [{
+        model: Category,
+        as: 'categories',
+        through: { attributes: [] },
+        attributes: ['category_id', 'name']
+      }]
+    });
+    if (!film) {
       return res.status(404).json({ error: 'Film not found.' });
     }
-    res.json({ film: results[0] });
-  });
+    res.json({ film });
+  } catch (err) {
+    console.error('Error fetching film by id:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// /films/by-categories endpoint: returns films grouped by category (POST)
+app.post('/films/by-categories', express.json(), async (req, res) => {
+  let { categories } = req.body;
+  // Accept comma-separated string or array
+  if (!categories) {
+    return res.status(400).json({ error: 'Missing categories parameter.' });
+  }
+  if (!Array.isArray(categories)) {
+    categories = categories.split(',').map(c => c.trim()).filter(Boolean);
+  }
+  if (!categories.length) {
+    return res.status(400).json({ error: 'No valid categories provided.' });
+  }
+  try {
+    // Fetch all categories and their films in one query
+    const foundCategories = await Category.findAll({
+      where: { name: { [Sequelize.Op.in]: categories } },
+      include: [{
+        model: Film,
+        as: 'films',
+        through: { attributes: [] },
+        attributes: { exclude: [] } // return all film attributes
+      }],
+      attributes: ['category_id', 'name']
+    });
+    // Format response
+    const result = foundCategories.map(cat => ({
+      category: cat.name,
+      films: cat.films || []
+    }));
+    res.json(result);
+  } catch (err) {
+    console.error('Error in /films/by-categories:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
 });
 
 // Start the server
