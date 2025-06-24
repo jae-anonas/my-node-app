@@ -1,6 +1,15 @@
-const Sequelize = require('sequelize');
-module.exports = function(sequelize, DataTypes) {
-  return sequelize.define('language', {
+const { DataTypes, Model } = require('sequelize');
+
+module.exports = (sequelize) => {
+  class Language extends Model {
+    static associate(models) {
+      // A Language has many Films (as language)
+      Language.hasMany(models.Film, { foreignKey: 'language_id', as: 'films' });
+      // A Language has many Films (as original_language)
+      Language.hasMany(models.Film, { foreignKey: 'original_language_id', as: 'original_films' });
+    }
+  }
+  Language.init({
     language_id: {
       autoIncrement: true,
       type: DataTypes.TINYINT.UNSIGNED,
@@ -14,10 +23,11 @@ module.exports = function(sequelize, DataTypes) {
     last_update: {
       type: DataTypes.DATE,
       allowNull: false,
-      defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
+      defaultValue: sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
     }
   }, {
     sequelize,
+    modelName: 'Language',
     tableName: 'language',
     timestamps: false,
     indexes: [
@@ -25,10 +35,9 @@ module.exports = function(sequelize, DataTypes) {
         name: "PRIMARY",
         unique: true,
         using: "BTREE",
-        fields: [
-          { name: "language_id" },
-        ]
-      },
+        fields: ["language_id"]
+      }
     ]
   });
+  return Language;
 };

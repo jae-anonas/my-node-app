@@ -70,6 +70,15 @@ module.exports = (sequelize) => {
       otherKey: 'category_id',
       as: 'categories'
     });
+    // Association to Language
+    Film.belongsTo(models.Language, {
+      foreignKey: 'language_id',
+      as: 'language'
+    });
+    Film.belongsTo(models.Language, {
+      foreignKey: 'original_language_id',
+      as: 'original_language'
+    });
   };
   return Film;
 };

@@ -12,6 +12,7 @@ const UserModel = require('../models/user');
 const FilmModel = require('../models/film');
 const FilmCategoryModel = require('../models/film_category');
 const CategoryModel = require('../models/category');
+const LanguageModel = require('../models/language');
 
 const sequelize = new Sequelize(
   process.env.DB_DATABASE,
@@ -27,10 +28,11 @@ const User = UserModel(sequelize);
 const Film = FilmModel(sequelize);
 const FilmCategory = FilmCategoryModel(sequelize);
 const Category = CategoryModel(sequelize);
+const Language = LanguageModel(sequelize);
 
 // Set up associations
 if (User.associate) User.associate({});
-if (Film.associate) Film.associate({ Category, FilmCategory });
+if (Film.associate) Film.associate({ Category, FilmCategory, Language });
 if (Category.associate) Category.associate({ Film, FilmCategory });
 if (FilmCategory.associate) FilmCategory.associate({ Film, Category });
 
@@ -268,17 +270,33 @@ app.get('/films/by-id', async (req, res) => {
   }
   try {
     const film = await Film.findByPk(id, {
-      include: [{
-        model: Category,
-        as: 'categories',
-        through: { attributes: [] },
-        attributes: ['category_id', 'name']
-      }]
+      include: [
+        {
+          model: Category,
+          as: 'categories',
+          through: { attributes: [] },
+          attributes: ['category_id', 'name']
+        },
+        {
+          model: Language,
+          as: 'language',
+          attributes: ['language_id', 'name']
+        },
+        {
+          model: Language,
+          as: 'original_language',
+          attributes: ['language_id', 'name']
+        }
+      ]
     });
     if (!film) {
       return res.status(404).json({ error: 'Film not found.' });
     }
-    res.json({ film });
+    // res.json({ film });
+    const filmJson = film.toJSON();
+    filmJson.language = filmJson.language ? filmJson.language.name : null;
+    filmJson.original_language = filmJson.original_language ? filmJson.original_language.name : null;
+    res.json({ film: filmJson });
   } catch (err) {
     console.error('Error fetching film by id:', err);
     res.status(500).json({ error: 'Database error.' });
