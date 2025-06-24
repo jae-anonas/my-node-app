@@ -340,6 +340,89 @@ app.post('/films/by-categories', express.json(), async (req, res) => {
   }
 });
 
+// /films/edit endpoint using Sequelize
+app.put('/films/edit', express.json(), async (req, res) => {
+  const { film_id, title, description, release_year, language_id, original_language_id, rental_duration, rental_rate, length, replacement_cost, rating, special_features } = req.body;
+  if (!film_id) {
+    return res.status(400).json({ error: 'film_id is required.' });
+  }
+  try {
+    const [affectedRows] = await Film.update(
+      {
+        title,
+        description,
+        release_year,
+        language_id,
+        original_language_id,
+        rental_duration,
+        rental_rate,
+        length,
+        replacement_cost,
+        rating,
+        special_features
+      },
+      { where: { film_id } }
+    );
+    if (affectedRows === 0) {
+      return res.status(404).json({ error: 'Film not found.' });
+    }
+    res.json({ success: true, message: 'Film updated successfully.' });
+  } catch (err) {
+    console.error('Error updating film:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// /films/create endpoint using Sequelize
+app.post('/films/create', express.json(), async (req, res) => {
+  const {
+    title,
+    description,
+    release_year,
+    language_id,
+    original_language_id,
+    rental_duration,
+    rental_rate,
+    length,
+    replacement_cost,
+    rating,
+    special_features,
+    category_ids // optional: array of category IDs to associate
+  } = req.body;
+
+  if (!title || !language_id || !rental_duration || !rental_rate || !replacement_cost) {
+    return res.status(400).json({ error: 'Missing required film fields.' });
+  }
+
+  try {
+    // Create the film, include last_update
+    const film = await Film.create({
+      title,
+      description,
+      release_year,
+      language_id,
+      original_language_id,
+      rental_duration,
+      rental_rate,
+      length,
+      replacement_cost,
+      rating,
+      special_features,
+      last_update: new Date() // <-- add this line
+    });
+
+    // Optionally associate categories
+    if (Array.isArray(category_ids) && category_ids.length > 0) {
+      await film.setCategories(category_ids);
+    }
+
+    res.status(201).json({ success: true, message: 'Film created successfully.', film_id: film.film_id });
+  } catch (err) {
+    console.error('Error creating film:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
 // Start the server
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
