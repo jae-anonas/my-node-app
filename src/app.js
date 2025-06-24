@@ -206,32 +206,47 @@ app.get('/films/search', async (req, res) => {
   const { title, category, minYear, maxYear, rating, page = 1, pageSize = 10 } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(pageSize);
   let where = {};
-  if (title) where.title = { [Sequelize.Op.like]: `%${title}%` };
+  let include = [{
+    model: Category,
+    as: 'categories',
+    through: { attributes: [] },
+    attributes: ['category_id', 'name']
+  }];
+
+  // If searching by category, ensure films with at least one matching category are included
+  if (category) {
+    include[0].where = { name: { [Sequelize.Op.like]: `%${category}%` } };
+  }
+
+  // If searching by title or both title and category, use OR logic
+  if (title && category) {
+    // Remove include[0].where to avoid AND logic, use OR with a subquery for category
+    delete include[0].where;
+    where = {
+      [Sequelize.Op.or]: [
+        { title: { [Sequelize.Op.like]: `%${title}%` } },
+        Sequelize.literal(`EXISTS (
+          SELECT 1 FROM film_category fc
+          JOIN category c ON fc.category_id = c.category_id
+          WHERE fc.film_id = film.film_id AND c.name LIKE '%${category}%'
+        )`)
+      ]
+    };
+  } else if (title) {
+    where.title = { [Sequelize.Op.like]: `%${title}%` };
+  }
+
   if (minYear) where.release_year = { ...(where.release_year || {}), [Sequelize.Op.gte]: minYear };
   if (maxYear) where.release_year = { ...(where.release_year || {}), [Sequelize.Op.lte]: maxYear };
   if (rating) where.rating = rating;
-  let categoryWhere = undefined;
-  if (category) {
-    // Support comma-separated or array for multiple categories
-    let categories = Array.isArray(category) ? category : category.split(',').map(c => c.trim()).filter(Boolean);
-    if (categories.length > 1) {
-      categoryWhere = { [Sequelize.Op.or]: categories.map(name => ({ name })) };
-    } else if (categories.length === 1) {
-      categoryWhere = { name: categories[0] };
-    }
-  }
+
   try {
     const { count, rows } = await Film.findAndCountAll({
       where,
-      include: [{
-        model: Category,
-        as: 'categories',
-        where: categoryWhere,
-        through: { attributes: [] },
-        attributes: ['category_id', 'name']
-      }],
+      include,
       limit: parseInt(pageSize),
-      offset
+      offset,
+      distinct: true // Needed for correct count with include
     });
     res.json({
       page: parseInt(page),
