@@ -7,15 +7,23 @@
     "start": "node src/app.js",
     "fetch:client": "rm -rf ./my-angular-app && git clone --branch develop --single-branch https://github.com/jae-anonas/my-angular-app ./my-angular-app",
     "build:client": "cd ./my-angular-app && npm install --legacy-peer-deps && npx ng build --configuration production",
-    "postinstall": "npm run fetch:client && npm run build:client"
+    "postinstall": "npm run fetch:client && npm run build:client",
+    "migrate": "npx sequelize-cli db:migrate",
+    "migrate:undo": "npx sequelize-cli db:migrate:undo",
+    "migration:generate": "npx sequelize-cli migration:generate --name"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.17.1",
     "mysql": "^2.18.1",
-    "mysql2": "^3.14.1"
+    "mysql2": "^3.14.1",
+    "sequelize": "^6.37.7",
+    "sequelize-cli": "^6.6.3"
   },
   "engines": {
     "node": "14.x"
+  },
+  "devDependencies": {
+    "sequelize-auto": "^0.8.8"
   }
 }
