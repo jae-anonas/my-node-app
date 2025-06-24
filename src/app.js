@@ -9,6 +9,10 @@ const path = require('path');
 // Sequelize setup
 const { Sequelize } = require('sequelize');
 const UserModel = require('../models/user');
+const FilmModel = require('../models/film');
+const FilmCategoryModel = require('../models/film_category');
+const CategoryModel = require('../models/category');
+
 const sequelize = new Sequelize(
   process.env.DB_DATABASE,
   process.env.DB_USER,
@@ -18,7 +22,17 @@ const sequelize = new Sequelize(
     dialect: 'mysql'
   }
 );
+
 const User = UserModel(sequelize);
+const Film = FilmModel(sequelize);
+const FilmCategory = FilmCategoryModel(sequelize);
+const Category = CategoryModel(sequelize);
+
+// Set up associations
+if (User.associate) User.associate({});
+if (Film.associate) Film.associate({ Category, FilmCategory });
+if (Category.associate) Category.associate({ Film, FilmCategory });
+if (FilmCategory.associate) FilmCategory.associate({ Film, Category });
 
 // Initialize Express app
 const app = express();
@@ -89,38 +103,74 @@ app.post('/signin', express.json(), async (req, res) => {
   }
 });
 
-app.post('/signup', express.json(), (req, res) => {
-  console.log('Received signup request:', req.body);
-  console.log('Received signup request data:', req.body.userData);
-  // Validate request body
+// /signup endpoint using Sequelize
+app.post('/signup', express.json(), async (req, res) => {
   const { name, password, email } = req.body.userData || req.body;
   if (!name || !password || !email) {
     return res.status(400).json({ error: 'Username and password are required.' });
   }
-
-  // Hash the password using SHA-256
   const hash = crypto.createHash('sha256').update(password).digest('hex');
-
-  // Check if user already exists
-  const checkSql = 'SELECT * FROM user WHERE name = ? or email= ? LIMIT 1';
-  db.query(checkSql, [name, email], (err, results) => {
-    if (err) {
-      console.error('Error checking user:', err);
-      return res.status(500).json({ error: 'Database error.' });
-    }
-    if (results.length > 0) {
+  try {
+    const existing = await User.findOne({ where: { [Sequelize.Op.or]: [{ name }, { email }] } });
+    if (existing) {
       return res.status(409).json({ error: 'Username already exists.' });
     }
-    // Insert new user
-    const insertSql = 'INSERT INTO user (name, password_hash, email) VALUES (?, ?, ?)';
-    db.query(insertSql, [name, hash, email], (err, result) => {
-      if (err) {
-        console.error('Error creating user:', err);
-        return res.status(500).json({ error: 'Database error.' });
-      }
-      return res.status(201).json({ success: true, message: 'User created successfully.' });
-    });
-  });
+    await User.create({ name, password_hash: hash, email });
+    return res.status(201).json({ success: true, message: 'User created successfully.' });
+  } catch (err) {
+    console.error('Error creating user:', err);
+    return res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// /users endpoint using Sequelize
+app.get('/users', async (req, res) => {
+  try {
+    const users = await User.findAll();
+    res.json(users);
+  } catch (err) {
+    console.error('Error fetching users:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// /users/by-id endpoint using Sequelize
+app.get('/users/by-id', async (req, res) => {
+  const { id } = req.query;
+  if (!id) {
+    return res.status(400).json({ error: 'Missing user id in query parameter.' });
+  }
+  try {
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    res.json({ user });
+  } catch (err) {
+    console.error('Error fetching user by id:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// /users/edit endpoint using Sequelize
+app.put('/users/edit', express.json(), async (req, res) => {
+  const { id, name, email, first_name, last_name, role } = req.body;
+  if (!id) {
+    return res.status(400).json({ error: 'User id is required.' });
+  }
+  try {
+    const [affectedRows] = await User.update(
+      { name, email, first_name, last_name, role },
+      { where: { id } }
+    );
+    if (affectedRows === 0) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    res.json({ success: true, message: 'User updated successfully.' });
+  } catch (err) {
+    console.error('Error updating user:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
 });
 
 app.get('/films', (req, res) => {
@@ -261,62 +311,51 @@ app.post('/films/by-categories', express.json(), async (req, res) => {
   }
 });
 
-app.get('/users', (req, res) => {
-  const sql = `
-    SELECT id, name, email, first_name, last_name, role, created_at, updated_at
-    FROM user
-  `;
-  db.query(sql, (err, results) => {
-    if (err) {
-      console.error('Error fetching users:', err);
-      return res.status(500).json({ error: 'Database error.' });
-    }
-    res.json(results);
-  });
+app.get('/users', async (req, res) => {
+  try {
+    const users = await User.findAll();
+    res.json(users);
+  } catch (err) {
+    console.error('Error fetching users:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
 });
 
-app.get('/users/by-id', (req, res) => {
+app.get('/users/by-id', async (req, res) => {
   const { id } = req.query;
   if (!id) {
     return res.status(400).json({ error: 'Missing user id in query parameter.' });
   }
-  const sql = `
-    SELECT id, name, email, first_name, last_name, role, created_at, updated_at
-    FROM user
-    WHERE id = ?
-  `;
-  db.query(sql, [id], (err, results) => {
-    if (err) {
-      console.error('Error fetching user by id:', err);
-      return res.status(500).json({ error: 'Database error.' });
-    }
-    if (results.length === 0) {
+  try {
+    const user = await User.findByPk(id);
+    if (!user) {
       return res.status(404).json({ error: 'User not found.' });
     }
-    res.json({ user: results[0] });
-  });
+    res.json({ user });
+  } catch (err) {
+    console.error('Error fetching user by id:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
 });
 
-app.put('/users/edit', express.json(), (req, res) => {
+app.put('/users/edit', express.json(), async (req, res) => {
   const { id, name, email, first_name, last_name, role } = req.body;
   if (!id) {
     return res.status(400).json({ error: 'User id is required.' });
   }
-  const sql = `
-    UPDATE user
-    SET name = ?, email = ?, first_name = ?, last_name = ?, role = ?, updated_at = NOW()
-    WHERE id = ?
-  `;
-  db.query(sql, [name, email, first_name, last_name, role, id], (err, result) => {
-    if (err) {
-      console.error('Error updating user:', err);
-      return res.status(500).json({ error: 'Database error.' });
-    }
-    if (result.affectedRows === 0) {
+  try {
+    const [affectedRows] = await User.update(
+      { name, email, first_name, last_name, role },
+      { where: { id } }
+    );
+    if (affectedRows === 0) {
       return res.status(404).json({ error: 'User not found.' });
     }
     res.json({ success: true, message: 'User updated successfully.' });
-  });
+  } catch (err) {
+    console.error('Error updating user:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
 });
 
 app.get('/films/by-id', (req, res) => {
