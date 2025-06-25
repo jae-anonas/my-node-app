@@ -39,7 +39,7 @@ if (FilmCategory.associate) FilmCategory.associate({ Film, Category });
 // Initialize Express app
 const app = express();
 app.use(cors());
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 // Create a MySQL connection pool
 const db = mysql.createPool({
