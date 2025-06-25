@@ -79,7 +79,7 @@ app.get('/query', (req, res) => {
   });
 });
 
-app.post('/signin', express.json(), async (req, res) => {
+app.post('/api/signin', express.json(), async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password are required.' });
@@ -106,7 +106,7 @@ app.post('/signin', express.json(), async (req, res) => {
 });
 
 // /signup endpoint using Sequelize
-app.post('/signup', express.json(), async (req, res) => {
+app.post('/api/signup', express.json(), async (req, res) => {
   const { name, password, email } = req.body.userData || req.body;
   if (!name || !password || !email) {
     return res.status(400).json({ error: 'Username and password are required.' });
@@ -125,8 +125,8 @@ app.post('/signup', express.json(), async (req, res) => {
   }
 });
 
-// /users endpoint using Sequelize
-app.get('/users', async (req, res) => {
+// User endpoints
+app.get('/api/users', async (req, res) => {
   try {
     const users = await User.findAll();
     res.json(users);
@@ -136,8 +136,7 @@ app.get('/users', async (req, res) => {
   }
 });
 
-// /users/by-id endpoint using Sequelize
-app.get('/users/by-id', async (req, res) => {
+app.get('/api/users/by-id', async (req, res) => {
   const { id } = req.query;
   if (!id) {
     return res.status(400).json({ error: 'Missing user id in query parameter.' });
@@ -154,8 +153,7 @@ app.get('/users/by-id', async (req, res) => {
   }
 });
 
-// /users/edit endpoint using Sequelize
-app.put('/users/edit', express.json(), async (req, res) => {
+app.put('/api/users/edit', express.json(), async (req, res) => {
   const { id, name, email, first_name, last_name, role } = req.body;
   if (!id) {
     return res.status(400).json({ error: 'User id is required.' });
@@ -175,8 +173,8 @@ app.put('/users/edit', express.json(), async (req, res) => {
   }
 });
 
-// /films endpoint using Sequelize
-app.get('/films', async (req, res) => {
+// Film endpoints
+app.get('/api/films', async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const pageSize = parseInt(req.query.pageSize) || 10;
   const offset = (page - 1) * pageSize;
@@ -203,8 +201,7 @@ app.get('/films', async (req, res) => {
   }
 });
 
-// /films/search endpoint using Sequelize
-app.get('/films/search', async (req, res) => {
+app.get('/api/films/search', async (req, res) => {
   const { title, category, minYear, maxYear, rating, page = 1, pageSize = 10 } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(pageSize);
   let where = {};
@@ -262,8 +259,7 @@ app.get('/films/search', async (req, res) => {
   }
 });
 
-// /films/by-id endpoint using Sequelize
-app.get('/films/by-id', async (req, res) => {
+app.get('/api/films/by-id', async (req, res) => {
   const { id } = req.query;
   if (!id) {
     return res.status(400).json({ error: 'Missing film id in query parameter.' });
@@ -303,8 +299,7 @@ app.get('/films/by-id', async (req, res) => {
   }
 });
 
-// /films/by-categories endpoint: returns films grouped by category (POST)
-app.post('/films/by-categories', express.json(), async (req, res) => {
+app.post('/api/films/by-categories', express.json(), async (req, res) => {
   let { categories } = req.body;
   // Accept comma-separated string or array
   if (!categories) {
@@ -340,8 +335,7 @@ app.post('/films/by-categories', express.json(), async (req, res) => {
   }
 });
 
-// /films/edit endpoint using Sequelize
-app.put('/films/edit', express.json(), async (req, res) => {
+app.put('/api/films/edit', express.json(), async (req, res) => {
   const { film_id, title, description, release_year, language_id, original_language_id, rental_duration, rental_rate, length, replacement_cost, rating, special_features } = req.body;
   if (!film_id) {
     return res.status(400).json({ error: 'film_id is required.' });
@@ -373,8 +367,7 @@ app.put('/films/edit', express.json(), async (req, res) => {
   }
 });
 
-// /films/create endpoint using Sequelize
-app.post('/films/create', express.json(), async (req, res) => {
+app.post('/api/films/create', express.json(), async (req, res) => {
   const {
     title,
     description,
@@ -423,8 +416,8 @@ app.post('/films/create', express.json(), async (req, res) => {
   }
 });
 
-// Get all languages for dropdown options
-app.get('/films/languages/options', async (req, res) => {
+// Dropdown endpoints
+app.get('/api/languages/options', async (req, res) => {
   try {
     const languages = await Language.findAll({
       attributes: ['language_id', 'name'],
@@ -440,8 +433,7 @@ app.get('/films/languages/options', async (req, res) => {
   }
 });
 
-// Get all categories for dropdown options
-app.get('/films/categories/options', async (req, res) => {
+app.get('/api/categories/options', async (req, res) => {
   try {
     const categories = await Category.findAll({
       attributes: ['category_id', 'name'],
