@@ -5,7 +5,7 @@
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
-    "fetch:client": "rmdir /s /q .\\my-angular-app && git clone --branch develop --single-branch https://github.com/jae-anonas/my-angular-app .\\my-angular-app",
+    "fetch:client": "npx rimraf ./my-angular-app && git clone --branch develop --single-branch https://github.com/jae-anonas/my-angular-app ./my-angular-app",
     "build:client": "cd ./my-angular-app && npm install --legacy-peer-deps && npx ng build --configuration production",
     "postinstall": "npm run fetch:client && npm run build:client",
     "migrate": "npx sequelize-cli db:migrate",
