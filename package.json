@@ -20,7 +20,7 @@
     "sequelize-cli": "^6.6.3"
   },
   "engines": {
-    "node": "14.x"
+    "node": "22.x"
   },
   "devDependencies": {
     "sequelize-auto": "^0.8.8"
