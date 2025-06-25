@@ -5,7 +5,7 @@
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
-    "fetch:client": "rimraf ./my-angular-app/dist && rimraf ./my-angular-app/src && git clone --branch develop --single-branch https://github.com/jae-anonas/my-angular-app ./my-angular-app-temp && xcopy /E /I /Y ./my-angular-app-temp/* ./my-angular-app/ && rimraf ./my-angular-app-temp",
+    "fetch:client": "rimraf ./my-angular-app-temp && rimraf ./my-angular-app/dist && rimraf ./my-angular-app/src && git clone --branch develop --single-branch https://github.com/jae-anonas/my-angular-app ./my-angular-app-temp && xcopy /E /I /Y ./my-angular-app-temp/* ./my-angular-app/ && rimraf ./my-angular-app-temp",
     "build:client": "cd ./my-angular-app && npm install --legacy-peer-deps && npm exec ng build --configuration production",
     "postinstall": "npm run fetch:client && npm run build:client"
   },
