@@ -15,7 +15,8 @@ module.exports = (sequelize) => {
     },
     last_update: {
       type: DataTypes.DATE,
-      allowNull: false
+      allowNull: false,
+      defaultValue: DataTypes.NOW
     }
   }, {
     sequelize,

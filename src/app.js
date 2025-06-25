@@ -387,7 +387,7 @@ app.post('/films/create', express.json(), async (req, res) => {
     replacement_cost,
     rating,
     special_features,
-    category_ids // optional: array of category IDs to associate
+    categories // optional: array of category IDs to associate
   } = req.body;
 
   if (!title || !language_id || !rental_duration || !rental_rate || !replacement_cost) {
@@ -412,13 +412,47 @@ app.post('/films/create', express.json(), async (req, res) => {
     });
 
     // Optionally associate categories
-    if (Array.isArray(category_ids) && category_ids.length > 0) {
-      await film.setCategories(category_ids);
+    if (Array.isArray(categories) && categories.length > 0) {
+      await film.setCategories(categories);
     }
 
     res.status(201).json({ success: true, message: 'Film created successfully.', film_id: film.film_id });
   } catch (err) {
     console.error('Error creating film:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// Get all languages for dropdown options
+app.get('/films/languages/options', async (req, res) => {
+  try {
+    const languages = await Language.findAll({
+      attributes: ['language_id', 'name'],
+      order: [['name', 'ASC']]
+    });
+    res.json(languages.map(lang => ({
+      language_id: lang.language_id,
+      name: lang.name
+    })));
+  } catch (err) {
+    console.error('Error fetching languages:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// Get all categories for dropdown options
+app.get('/films/categories/options', async (req, res) => {
+  try {
+    const categories = await Category.findAll({
+      attributes: ['category_id', 'name'],
+      order: [['name', 'ASC']]
+    });
+    res.json(categories.map(cat => ({
+      category_id: cat.category_id,
+      name: cat.name
+    })));
+  } catch (err) {
+    console.error('Error fetching categories:', err);
     res.status(500).json({ error: 'Database error.' });
   }
 });
