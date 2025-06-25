@@ -6,11 +6,8 @@
   "scripts": {
     "start": "node src/app.js",
     "fetch:client": "rimraf ./my-angular-app && git clone --branch develop --single-branch https://github.com/jae-anonas/my-angular-app ./my-angular-app",
-    "build:client": "cd ./my-angular-app && npm install --legacy-peer-deps && npx ng build --configuration production",
-    "postinstall": "npm run fetch:client && npm run build:client",
-    "migrate": "npx sequelize-cli db:migrate",
-    "migrate:undo": "npx sequelize-cli db:migrate:undo",
-    "migration:generate": "npx sequelize-cli migration:generate --name"
+    "build:client": "cd ./my-angular-app && npm install --legacy-peer-deps && ./node_modules/.bin/ng build --configuration production",
+    "postinstall": "npm run fetch:client && npm run build:client"
   },
   "dependencies": {
     "cors": "^2.8.5",
