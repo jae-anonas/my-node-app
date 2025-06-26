@@ -5,6 +5,7 @@ const mysql = require('mysql2');
 const crypto = require('crypto');
 var cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 
 // Sequelize setup
 const { Sequelize } = require('sequelize');
@@ -46,7 +47,10 @@ const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: process.env.DB_DATABASE
+  database: process.env.DB_DATABASE,
+  ssl: {
+    ca: fs.readFileSync('./DigiCertGlobalRootCA.crt.pem')
+  }
 });
 
 // Serve static files from Angular build output
