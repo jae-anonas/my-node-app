@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/app.js",
     "fetch:client": "rimraf ./my-angular-app && git clone --branch develop --single-branch https://github.com/jae-anonas/my-angular-app ./my-angular-app",
-    "build:client": "cd ./my-angular-app && npm install --legacy-peer-deps && npm exec ng build --configuration production",
+    "build:client": "cd ./my-angular-app && npm install --legacy-peer-deps && node_modules/.bin/ng build --configuration production",
     "postinstall": "npm run fetch:client && npm run build:client"
   },
   "dependencies": {
