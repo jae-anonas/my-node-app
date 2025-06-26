@@ -21,7 +21,12 @@ const sequelize = new Sequelize(
   process.env.DB_PASSWORD,
   {
     host: process.env.DB_HOST,
-    dialect: 'mysql'
+    dialect: 'mysql',
+    dialectOptions: {
+      ssl: {
+        ca: fs.readFileSync(process.env.DB_SSL_CA || './DigiCertGlobalRootCA.crt.pem')
+    }
+  }
   }
 );
 
@@ -42,16 +47,6 @@ const app = express();
 app.use(cors());
 const port = process.env.PORT || 3000;
 
-// Create a MySQL connection pool
-const db = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_DATABASE,
-  ssl: {
-    ca: fs.readFileSync(process.env.DB_SSL_CA || './DigiCertGlobalRootCA.crt.pem')
-  }
-});
 
 // Serve static files from Angular build output
 app.use(express.static(path.join(__dirname, '../dist/my-angular-app/browser')));
@@ -67,20 +62,6 @@ app.get('*', (req, res, next) => {
     return next();
   }
   res.sendFile(path.join(__dirname, '../dist/my-angular-app/browser/index.html'));
-});
-
-// Define a route to handle SQL queries
-app.get('/query', (req, res) => {
-  const sqlQuery = "select i.inventory_id, f.title from sakila.inventory i inner join film f limit 10;"; // Replace with your SQL query
-
-  db.query(sqlQuery, (err, results) => {
-    if (err) {
-      console.error('Error executing query:', err);
-      res.status(500).send('Database query failed');
-    } else {
-      res.json(results); // Send query results as JSON
-    }
-  });
 });
 
 app.post('/api/signin', express.json(), async (req, res) => {
