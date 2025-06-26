@@ -49,7 +49,7 @@ const db = mysql.createPool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_DATABASE,
   ssl: {
-    ca: fs.readFileSync('./DigiCertGlobalRootCA.crt.pem')
+    ca: fs.readFileSync(process.env.DB_SSL_CA || './DigiCertGlobalRootCA.crt.pem')
   }
 });
 
