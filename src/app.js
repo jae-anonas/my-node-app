@@ -50,7 +50,7 @@ const db = mysql.createPool({
 });
 
 // Serve static files from Angular build output
-app.use(express.static(path.join(__dirname, '../my-angular-app/dist/my-angular-app/browser')));
+app.use(express.static(path.join(__dirname, '../dist/my-angular-app/browser')));
 
 // Fallback to index.html for Angular client-side routes (not for static files or API)
 app.get('*', (req, res, next) => {
@@ -62,7 +62,7 @@ app.get('*', (req, res, next) => {
   ) {
     return next();
   }
-  res.sendFile(path.join(__dirname, '../my-angular-app/dist/my-angular-app/browser/index.html'));
+  res.sendFile(path.join(__dirname, '../dist/my-angular-app/browser/index.html'));
 });
 
 // Define a route to handle SQL queries
