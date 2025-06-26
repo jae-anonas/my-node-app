@@ -4,10 +4,7 @@
   "description": "A simple Node.js application for Google App Engine",
   "main": "src/app.js",
   "scripts": {
-    "start": "node src/app.js",
-    "fetch:client": "rimraf ./my-angular-app && git clone --branch develop --single-branch https://github.com/jae-anonas/my-angular-app ./my-angular-app",
-    "build:client": "cd ./my-angular-app && npm install --legacy-peer-deps && ng build --configuration production",
-    "postinstall": "npm run fetch:client && npm run build:client"
+    "start": "node src/app.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
