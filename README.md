@@ -1,66 +1,129 @@
-# My Node.js App
+# My Node.js + Angular + MySQL App (Azure-ready)
 
-This is a simple Node.js application designed to run on Google App Engine. It uses Express to create a web server that responds with a message.
+This is a Node.js/Express backend that serves an Angular SPA and provides a REST API for user and film management, using MySQL (with Sequelize ORM). It is ready for deployment to Azure App Service and supports secure MySQL connections.
 
 ## Project Structure
 
 ```
 my-node-app
 ├── src
-│   └── app.js        # Entry point of the application
+│   └── app.js        # Entry point of the application (Express backend)
+├── my-angular-app    # Angular frontend project
+│   └── ...
+├── dist/my-angular-app/browser # Angular build output (served statically by Express)
+├── models            # Sequelize models
+├── config            # Sequelize config
+├── migrations        # Sequelize migrations
+├── seeders           # Sequelize seeders
 ├── package.json      # npm configuration file
-├── app.yaml          # Google App Engine configuration file
+├── web.config        # Azure App Service/IIS config
+├── .env              # Environment variables
+├── DigiCertGlobalRootCA.crt.pem # MySQL SSL cert
 └── README.md         # Project documentation
 ```
 
 ## Prerequisites
 
-- Node.js installed on your machine
-- Google Cloud SDK installed and configured
+- Node.js (v18+ recommended)
+- Angular CLI (for building frontend)
+- MySQL database (Azure Database for MySQL or compatible)
+- (For Azure) Azure CLI and an Azure subscription
 
 ## Installation
 
 1. Clone the repository:
-   ```
+   ```sh
    git clone <repository-url>
    cd my-node-app
    ```
 
-2. Install the dependencies:
-   ```
+2. Install backend dependencies:
+   ```sh
    npm install
    ```
 
+3. Install Angular frontend dependencies:
+   ```sh
+   cd my-angular-app
+   npm install
+   cd ..
+   ```
+
+## Building the Angular App
+
+Before deploying or running locally, build the Angular app with the custom configuration:
+
+```sh
+cd my-angular-app
+ng build --configuration=otherProduction
+cd ..
+```
+
+This will output the static files to `dist/my-angular-app/browser`, which are served by Express.
+
 ## Running the Application Locally
 
-To run the application locally, use the following command:
-```
-npm start
-```
-The application will be accessible at `http://localhost:8080`.
-
-## Deploying to Google App Engine
-
-1. Make sure you are authenticated with Google Cloud:
-   ```
-   gcloud auth login
+1. Set up your `.env` file with your MySQL and app settings (see `.env.example` or below):
+   ```env
+   DB_HOST=your-mysql-host
+   DB_USER=your-mysql-user
+   DB_PASSWORD=your-mysql-password
+   DB_DATABASE=sakila
+   DB_PORT=3306
+   DB_SSL_CA=./DigiCertGlobalRootCA.crt.pem
+   PORT=3000
    ```
 
-2. Set your project ID:
+2. Start the backend server:
+   ```sh
+   npm start
    ```
-   gcloud config set project <your-project-id>
+   The application will be accessible at `http://localhost:3000`.
+
+## Deploying to Azure App Service
+
+1. Build the Angular app for production:
+   ```sh
+   cd my-angular-app
+   ng build --configuration=otherProduction
+   cd ..
    ```
 
-3. Deploy the application:
-   ```
-   gcloud app deploy
-   ```
+2. Ensure your environment variables are set in Azure (App Service > Configuration), including:
+   - DB_HOST
+   - DB_USER
+   - DB_PASSWORD
+   - DB_DATABASE
+   - DB_PORT
+   - DB_SSL_CA (e.g., `../DigiCertGlobalRootCA.crt.pem`)
+   - PORT (usually 80 or 3000)
 
-4. Open the application in your browser:
+3. Deploy to Azure (using Azure CLI):
+   ```sh
+   az webapp up --name <your-app-name> --resource-group <your-resource-group> --runtime "NODE|22-lts"
    ```
-   gcloud app browse
-   ```
+   Or use your preferred Azure deployment method (e.g., GitHub Actions, VS Code Azure extension).
+
+4. After deployment, your app will be available at `https://<your-app-name>.azurewebsites.net`.
+
+## Notes
+- The backend serves the Angular app from `dist/my-angular-app/browser`.
+- All API endpoints are prefixed with `/api`.
+- MySQL SSL is required for Azure Database for MySQL. The DigiCertGlobalRootCA.crt.pem file must be present and referenced by `DB_SSL_CA`.
+- For troubleshooting Azure deployment, see the comments in `web.config` and the project documentation.
 
 ## License
 
 This project is licensed under the MIT License.
+
+## Future Improvements
+
+- Add a SQL schema file (e.g., `sakila-schema.sql`) to the repository for easy initialization of the MySQL database.
+- Provide automated scripts for database migration and seeding.
+- Add CI/CD pipeline examples for Azure deployment.
+- Expand API documentation and add OpenAPI/Swagger support.
+- Implement additional authentication and authorization features.
+- Add unit and integration tests for backend and frontend.
+
+**Note:**
+If you are setting up the database for the first time, you will need the SQL schema file (such as `sakila-schema.sql`) to initialize your MySQL database. Import this file into your MySQL server before running the application.
