@@ -1,5 +1,6 @@
-const Sequelize = require('sequelize');
-module.exports = function(sequelize, DataTypes) {
+const { DataTypes } = require('sequelize');
+
+module.exports = function(sequelize) {
   return sequelize.define('customer', {
     customer_id: {
       autoIncrement: true,
@@ -47,7 +48,7 @@ module.exports = function(sequelize, DataTypes) {
     last_update: {
       type: DataTypes.DATE,
       allowNull: true,
-      defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
+      defaultValue: DataTypes.NOW
     }
   }, {
     sequelize,

@@ -1,5 +1,6 @@
-const Sequelize = require('sequelize');
-module.exports = function(sequelize, DataTypes) {
+const { DataTypes } = require('sequelize');
+
+module.exports = function(sequelize) {
   return sequelize.define('film_text', {
     film_id: {
       type: DataTypes.SMALLINT,

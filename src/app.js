@@ -16,6 +16,8 @@ const CategoryModel = require('../models/category');
 const LanguageModel = require('../models/language');
 const InventoryModel = require('../models/inventory');
 const StoreModel = require('../models/store');
+const RentalModel = require('../models/rental');
+const CustomerModel = require('../models/customer');
 
 const sequelize = new Sequelize(
   process.env.DB_DATABASE,
@@ -41,6 +43,8 @@ const Category = CategoryModel(sequelize);
 const Language = LanguageModel(sequelize);
 const Inventory = InventoryModel(sequelize);
 const Store = StoreModel(sequelize);
+const Rental = RentalModel(sequelize);
+const Customer = CustomerModel(sequelize);
 
 // Set up associations
 if (User.associate) User.associate({});
@@ -54,6 +58,13 @@ Inventory.belongsTo(Film, { foreignKey: 'film_id', as: 'film' });
 
 Store.hasMany(Inventory, { foreignKey: 'store_id', as: 'inventories' });
 Inventory.belongsTo(Store, { foreignKey: 'store_id', as: 'store' });
+
+// Add associations for Rental
+Inventory.hasMany(Rental, { foreignKey: 'inventory_id', as: 'rentals' });
+Rental.belongsTo(Inventory, { foreignKey: 'inventory_id', as: 'inventory' });
+
+Customer.hasMany(Rental, { foreignKey: 'customer_id', as: 'rentals' });
+Rental.belongsTo(Customer, { foreignKey: 'customer_id', as: 'customer' });
 
 // Initialize Express app
 const app = express();
@@ -745,6 +756,287 @@ app.get('/api/inventory/search', async (req, res) => {
     }
   } catch (err) {
     console.error('Error searching inventory:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// Rental endpoints
+app.post('/api/rentals/create', express.json(), async (req, res) => {
+  const { inventory_id, customer_id, staff_id } = req.body;
+  
+  if (!inventory_id || !customer_id || !staff_id) {
+    return res.status(400).json({ error: 'inventory_id, customer_id, and staff_id are required.' });
+  }
+
+  try {
+    // Check if inventory item exists and is available (not currently rented)
+    const availableInventory = await sequelize.query(`
+      SELECT i.inventory_id, i.film_id, i.store_id, f.title
+      FROM inventory i
+      JOIN film f ON i.film_id = f.film_id
+      WHERE i.inventory_id = ? 
+      AND NOT EXISTS (
+        SELECT 1 FROM rental r 
+        WHERE r.inventory_id = i.inventory_id 
+        AND r.return_date IS NULL
+      )
+    `, {
+      replacements: [inventory_id],
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    if (!availableInventory.length) {
+      return res.status(400).json({ error: 'Inventory item not found or already rented.' });
+    }
+
+    // Check if customer exists
+    const customer = await Customer.findByPk(customer_id);
+    if (!customer) {
+      return res.status(400).json({ error: 'Customer not found.' });
+    }
+
+    // Create the rental
+    const rental = await Rental.create({
+      inventory_id,
+      customer_id,
+      staff_id,
+      rental_date: new Date(),
+      last_update: new Date()
+    });
+
+    res.status(201).json({ 
+      success: true, 
+      message: 'Rental created successfully.',
+      rental: {
+        rental_id: rental.rental_id,
+        inventory_id: rental.inventory_id,
+        customer_id: rental.customer_id,
+        staff_id: rental.staff_id,
+        rental_date: rental.rental_date,
+        film_title: availableInventory[0].title
+      }
+    });
+  } catch (err) {
+    console.error('Error creating rental:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+app.put('/api/rentals/return', express.json(), async (req, res) => {
+  const { rental_id } = req.body;
+  
+  if (!rental_id) {
+    return res.status(400).json({ error: 'rental_id is required.' });
+  }
+
+  try {
+    // Find the rental and check if it exists and hasn't been returned yet
+    const rental = await Rental.findByPk(rental_id, {
+      include: [
+        {
+          model: Inventory,
+          as: 'inventory',
+          include: [
+            {
+              model: Film,
+              as: 'film',
+              attributes: ['title']
+            }
+          ]
+        },
+        {
+          model: Customer,
+          as: 'customer',
+          attributes: ['first_name', 'last_name']
+        }
+      ]
+    });
+
+    if (!rental) {
+      return res.status(404).json({ error: 'Rental not found.' });
+    }
+
+    if (rental.return_date) {
+      return res.status(400).json({ error: 'This rental has already been returned.' });
+    }
+
+    // Update the rental with return date
+    await rental.update({
+      return_date: new Date(),
+      last_update: new Date()
+    });
+
+    res.json({
+      success: true,
+      message: 'Rental returned successfully.',
+      rental: {
+        rental_id: rental.rental_id,
+        return_date: rental.return_date,
+        film_title: rental.inventory.film.title,
+        customer_name: `${rental.customer.first_name} ${rental.customer.last_name}`
+      }
+    });
+  } catch (err) {
+    console.error('Error returning rental:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+app.get('/api/rentals/active', async (req, res) => {
+  const { customer_id, page = 1, pageSize = 10 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(pageSize);
+  
+  try {
+    let where = { return_date: null }; // Only active rentals
+    if (customer_id) {
+      where.customer_id = customer_id;
+    }
+
+    const { count, rows } = await Rental.findAndCountAll({
+      where,
+      include: [
+        {
+          model: Inventory,
+          as: 'inventory',
+          include: [
+            {
+              model: Film,
+              as: 'film',
+              attributes: ['film_id', 'title', 'rental_rate']
+            },
+            {
+              model: Store,
+              as: 'store',
+              attributes: ['store_id']
+            }
+          ]
+        },
+        {
+          model: Customer,
+          as: 'customer',
+          attributes: ['customer_id', 'first_name', 'last_name', 'email']
+        }
+      ],
+      limit: parseInt(pageSize),
+      offset,
+      order: [['rental_date', 'DESC']]
+    });
+
+    res.json({
+      page: parseInt(page),
+      pageSize: parseInt(pageSize),
+      total: count,
+      activeRentals: rows
+    });
+  } catch (err) {
+    console.error('Error fetching active rentals:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+app.get('/api/rentals/history', async (req, res) => {
+  const { customer_id, page = 1, pageSize = 10 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(pageSize);
+  
+  try {
+    let where = {};
+    if (customer_id) {
+      where.customer_id = customer_id;
+    }
+
+    const { count, rows } = await Rental.findAndCountAll({
+      where,
+      include: [
+        {
+          model: Inventory,
+          as: 'inventory',
+          include: [
+            {
+              model: Film,
+              as: 'film',
+              attributes: ['film_id', 'title', 'rental_rate']
+            },
+            {
+              model: Store,
+              as: 'store',
+              attributes: ['store_id']
+            }
+          ]
+        },
+        {
+          model: Customer,
+          as: 'customer',
+          attributes: ['customer_id', 'first_name', 'last_name', 'email']
+        }
+      ],
+      limit: parseInt(pageSize),
+      offset,
+      order: [['rental_date', 'DESC']]
+    });
+
+    res.json({
+      page: parseInt(page),
+      pageSize: parseInt(pageSize),
+      total: count,
+      rentalHistory: rows
+    });
+  } catch (err) {
+    console.error('Error fetching rental history:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+app.get('/api/rentals/overdue', async (req, res) => {
+  const { page = 1, pageSize = 10 } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(pageSize);
+  
+  try {
+    // Get rentals that are overdue (more than 7 days old and not returned)
+    const overdueRentals = await sequelize.query(`
+      SELECT 
+        r.rental_id,
+        r.rental_date,
+        r.customer_id,
+        r.inventory_id,
+        DATEDIFF(NOW(), r.rental_date) as days_overdue,
+        f.title as film_title,
+        f.rental_rate,
+        c.first_name,
+        c.last_name,
+        c.email,
+        s.store_id
+      FROM rental r
+      JOIN inventory i ON r.inventory_id = i.inventory_id
+      JOIN film f ON i.film_id = f.film_id
+      JOIN customer c ON r.customer_id = c.customer_id
+      JOIN store s ON i.store_id = s.store_id
+      WHERE r.return_date IS NULL
+      AND DATEDIFF(NOW(), r.rental_date) > 7
+      ORDER BY days_overdue DESC
+      LIMIT ? OFFSET ?
+    `, {
+      replacements: [parseInt(pageSize), offset],
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    // Get total count of overdue rentals
+    const countResult = await sequelize.query(`
+      SELECT COUNT(*) as total
+      FROM rental r
+      WHERE r.return_date IS NULL
+      AND DATEDIFF(NOW(), r.rental_date) > 7
+    `, {
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    res.json({
+      page: parseInt(page),
+      pageSize: parseInt(pageSize),
+      total: countResult[0].total,
+      overdueRentals
+    });
+  } catch (err) {
+    console.error('Error fetching overdue rentals:', err);
     res.status(500).json({ error: 'Database error.' });
   }
 });
