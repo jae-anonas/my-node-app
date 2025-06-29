@@ -100,11 +100,24 @@ app.post('/api/signin', express.json(), async (req, res) => {
   const hash = crypto.createHash('sha256').update(password).digest('hex');
   console.log(`Hashed password for user ${username}: ${hash}`);
   try {
-    const user = await User.findOne({ where: { name: username, password_hash: hash } });
+    const user = await User.findOne({ 
+      where: { name: username, password_hash: hash },
+      include: [
+        {
+          model: Customer,
+          as: 'customer',
+          attributes: ['customer_id', 'first_name', 'last_name', 'email', 'active', 'store_id']
+        }
+      ]
+    });
     if (user) {
       // Login successful
       console.log(`User ${username} logged in successfully.`);
-      return res.json({ success: true, message: 'Login successful.', userData: user });
+      return res.json({ 
+        success: true, 
+        message: 'Login successful.', 
+        userData: user
+      });
     } else {
       // Login failed
       console.log(`Login failed for user ${username}.`);
@@ -1072,6 +1085,110 @@ app.get('/api/categories/options', async (req, res) => {
     })));
   } catch (err) {
     console.error('Error fetching categories:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// Customer endpoints
+app.get('/api/customers/by-id', async (req, res) => {
+  const { id } = req.query;
+  if (!id) {
+    return res.status(400).json({ error: 'Missing customer id in query parameter.' });
+  }
+  try {
+    const customer = await Customer.findByPk(id);
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found.' });
+    }
+    res.json({ customer });
+  } catch (err) {
+    console.error('Error fetching customer by id:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+app.put('/api/customers/edit', express.json(), async (req, res) => {
+  const { 
+    customer_id, 
+    first_name, 
+    last_name, 
+    email, 
+    store_id, 
+    address_id, 
+    active 
+  } = req.body;
+  
+  if (!customer_id) {
+    return res.status(400).json({ error: 'Customer id is required.' });
+  }
+  
+  try {
+    // Build update object with only provided fields
+    const updateData = {};
+    if (first_name !== undefined) updateData.first_name = first_name;
+    if (last_name !== undefined) updateData.last_name = last_name;
+    if (email !== undefined) updateData.email = email;
+    if (store_id !== undefined) updateData.store_id = store_id;
+    if (address_id !== undefined) updateData.address_id = address_id;
+    if (active !== undefined) updateData.active = active;
+    
+    // Always update last_update timestamp
+    updateData.last_update = new Date();
+    
+    const [affectedRows] = await Customer.update(
+      updateData,
+      { where: { customer_id } }
+    );
+    
+    if (affectedRows === 0) {
+      return res.status(404).json({ error: 'Customer not found.' });
+    }
+    
+    // Fetch and return the updated customer
+    const updatedCustomer = await Customer.findByPk(customer_id);
+    
+    res.json({ 
+      success: true, 
+      message: 'Customer updated successfully.',
+      customer: updatedCustomer
+    });
+  } catch (err) {
+    console.error('Error updating customer:', err);
+    if (err.name === 'SequelizeValidationError') {
+      return res.status(400).json({ error: 'Validation error: ' + err.message });
+    }
+    if (err.name === 'SequelizeForeignKeyConstraintError') {
+      return res.status(400).json({ error: 'Foreign key constraint error: Invalid store_id or address_id.' });
+    }
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+app.get('/api/customers', async (req, res) => {
+  const { page = 1, pageSize = 10, store_id, active } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(pageSize);
+  
+  try {
+    let where = {};
+    if (store_id) where.store_id = store_id;
+    if (active !== undefined) where.active = active === 'true';
+    
+    const { count, rows } = await Customer.findAndCountAll({
+      where,
+      attributes: ['customer_id', 'first_name', 'last_name', 'email', 'store_id', 'active', 'create_date'],
+      limit: parseInt(pageSize),
+      offset,
+      order: [['last_name', 'ASC'], ['first_name', 'ASC']]
+    });
+    
+    res.json({
+      page: parseInt(page),
+      pageSize: parseInt(pageSize),
+      total: count,
+      customers: rows
+    });
+  } catch (err) {
+    console.error('Error fetching customers:', err);
     res.status(500).json({ error: 'Database error.' });
   }
 });
