@@ -22,11 +22,13 @@ const sequelize = new Sequelize(
   {
     host: process.env.DB_HOST,
     dialect: 'mysql',
-    dialectOptions: {
-      ssl: {
-        ca: fs.readFileSync(process.env.DB_SSL_CA || './DigiCertGlobalRootCA.crt.pem')
-    }
-  }
+    ...(process.env.NODE_ENV === 'production' && {
+      dialectOptions: {
+        ssl: {
+          ca: fs.readFileSync(process.env.DB_SSL_CA || './DigiCertGlobalRootCA.crt.pem')
+        }
+      }
+    })
   }
 );
 
