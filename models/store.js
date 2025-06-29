@@ -1,14 +1,14 @@
-const Sequelize = require('sequelize');
-module.exports = function(sequelize, DataTypes) {
+const { DataTypes } = require('sequelize');
+module.exports = function(sequelize) {
   return sequelize.define('store', {
     store_id: {
       autoIncrement: true,
-      type: DataTypes.TINYINT.UNSIGNED,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       primaryKey: true
     },
     manager_staff_id: {
-      type: DataTypes.TINYINT.UNSIGNED,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: {
         model: 'staff',
@@ -17,7 +17,7 @@ module.exports = function(sequelize, DataTypes) {
       unique: "fk_store_staff"
     },
     address_id: {
-      type: DataTypes.SMALLINT.UNSIGNED,
+      type: DataTypes.INTEGER.UNSIGNED,
       allowNull: false,
       references: {
         model: 'address',
@@ -27,7 +27,7 @@ module.exports = function(sequelize, DataTypes) {
     last_update: {
       type: DataTypes.DATE,
       allowNull: false,
-      defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
+      defaultValue: DataTypes.NOW
     }
   }, {
     sequelize,

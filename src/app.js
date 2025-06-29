@@ -14,6 +14,8 @@ const FilmModel = require('../models/film');
 const FilmCategoryModel = require('../models/film_category');
 const CategoryModel = require('../models/category');
 const LanguageModel = require('../models/language');
+const InventoryModel = require('../models/inventory');
+const StoreModel = require('../models/store');
 
 const sequelize = new Sequelize(
   process.env.DB_DATABASE,
@@ -37,12 +39,21 @@ const Film = FilmModel(sequelize);
 const FilmCategory = FilmCategoryModel(sequelize);
 const Category = CategoryModel(sequelize);
 const Language = LanguageModel(sequelize);
+const Inventory = InventoryModel(sequelize);
+const Store = StoreModel(sequelize);
 
 // Set up associations
 if (User.associate) User.associate({});
 if (Film.associate) Film.associate({ Category, FilmCategory, Language });
 if (Category.associate) Category.associate({ Film, FilmCategory });
 if (FilmCategory.associate) FilmCategory.associate({ Film, Category });
+
+// Add associations for Inventory and Store
+Film.hasMany(Inventory, { foreignKey: 'film_id', as: 'inventories' });
+Inventory.belongsTo(Film, { foreignKey: 'film_id', as: 'film' });
+
+Store.hasMany(Inventory, { foreignKey: 'store_id', as: 'inventories' });
+Inventory.belongsTo(Store, { foreignKey: 'store_id', as: 'store' });
 
 // Initialize Express app
 const app = express();
@@ -176,11 +187,49 @@ app.get('/api/films', async (req, res) => {
       limit: pageSize,
       offset
     });
+
+    // Get inventory details for all films
+    const filmIds = rows.map(film => film.film_id);
+    const inventoryData = await sequelize.query(`
+      SELECT 
+        i.film_id,
+        i.store_id,
+        s.manager_staff_id,
+        s.address_id,
+        COUNT(i.inventory_id) as copies_count
+      FROM inventory i
+      JOIN store s ON i.store_id = s.store_id
+      WHERE i.film_id IN (${filmIds.length ? filmIds.map(() => '?').join(',') : 'NULL'})
+      GROUP BY i.film_id, i.store_id
+      ORDER BY i.film_id, i.store_id
+    `, {
+      replacements: filmIds,
+      type: sequelize.QueryTypes.SELECT
+    });
+
+    // Group inventory by film_id
+    const inventoryByFilm = inventoryData.reduce((acc, inv) => {
+      if (!acc[inv.film_id]) acc[inv.film_id] = [];
+      acc[inv.film_id].push({
+        store_id: inv.store_id,
+        manager_staff_id: inv.manager_staff_id,
+        address_id: inv.address_id,
+        copies_count: inv.copies_count
+      });
+      return acc;
+    }, {});
+
+    // Add inventory details to films
+    const filmsWithInventory = rows.map(film => ({
+      ...film.toJSON(),
+      inventory: inventoryByFilm[film.film_id] || []
+    }));
+
     res.json({
       page,
       pageSize,
       total: count,
-      films: rows
+      films: filmsWithInventory
     });
   } catch (err) {
     console.error('Error fetching films:', err);
@@ -234,11 +283,49 @@ app.get('/api/films/search', async (req, res) => {
       offset,
       distinct: true // Needed for correct count with include
     });
+
+    // Get inventory details for search results
+    const filmIds = rows.map(film => film.film_id);
+    const inventoryData = filmIds.length ? await sequelize.query(`
+      SELECT 
+        i.film_id,
+        i.store_id,
+        s.manager_staff_id,
+        s.address_id,
+        COUNT(i.inventory_id) as copies_count
+      FROM inventory i
+      JOIN store s ON i.store_id = s.store_id
+      WHERE i.film_id IN (${filmIds.map(() => '?').join(',')})
+      GROUP BY i.film_id, i.store_id
+      ORDER BY i.film_id, i.store_id
+    `, {
+      replacements: filmIds,
+      type: sequelize.QueryTypes.SELECT
+    }) : [];
+
+    // Group inventory by film_id
+    const inventoryByFilm = inventoryData.reduce((acc, inv) => {
+      if (!acc[inv.film_id]) acc[inv.film_id] = [];
+      acc[inv.film_id].push({
+        store_id: inv.store_id,
+        manager_staff_id: inv.manager_staff_id,
+        address_id: inv.address_id,
+        copies_count: inv.copies_count
+      });
+      return acc;
+    }, {});
+
+    // Add inventory details to films
+    const filmsWithInventory = rows.map(film => ({
+      ...film.toJSON(),
+      inventory: inventoryByFilm[film.film_id] || []
+    }));
+
     res.json({
       page: parseInt(page),
       pageSize: parseInt(pageSize),
       total: count,
-      films: rows
+      films: filmsWithInventory
     });
   } catch (err) {
     console.error('Error searching films:', err);
@@ -275,10 +362,34 @@ app.get('/api/films/by-id', async (req, res) => {
     if (!film) {
       return res.status(404).json({ error: 'Film not found.' });
     }
-    // res.json({ film });
+
+    // Get inventory details for this specific film
+    const inventoryData = await sequelize.query(`
+      SELECT 
+        i.store_id,
+        s.manager_staff_id,
+        s.address_id,
+        COUNT(i.inventory_id) as copies_count
+      FROM inventory i
+      JOIN store s ON i.store_id = s.store_id
+      WHERE i.film_id = ?
+      GROUP BY i.store_id
+      ORDER BY i.store_id
+    `, {
+      replacements: [id],
+      type: sequelize.QueryTypes.SELECT
+    });
+
     const filmJson = film.toJSON();
     filmJson.language = filmJson.language ? filmJson.language.name : null;
     filmJson.original_language = filmJson.original_language ? filmJson.original_language.name : null;
+    filmJson.inventory = inventoryData.map(inv => ({
+      store_id: inv.store_id,
+      manager_staff_id: inv.manager_staff_id,
+      address_id: inv.address_id,
+      copies_count: inv.copies_count
+    }));
+
     res.json({ film: filmJson });
   } catch (err) {
     console.error('Error fetching film by id:', err);
@@ -310,11 +421,56 @@ app.post('/api/films/by-categories', express.json(), async (req, res) => {
       }],
       attributes: ['category_id', 'name']
     });
-    // Format response
+
+    // Get all film IDs from the results
+    const allFilmIds = [];
+    foundCategories.forEach(cat => {
+      cat.films.forEach(film => {
+        if (!allFilmIds.includes(film.film_id)) {
+          allFilmIds.push(film.film_id);
+        }
+      });
+    });
+
+    // Get inventory details for all films
+    const inventoryData = allFilmIds.length ? await sequelize.query(`
+      SELECT 
+        i.film_id,
+        i.store_id,
+        s.manager_staff_id,
+        s.address_id,
+        COUNT(i.inventory_id) as copies_count
+      FROM inventory i
+      JOIN store s ON i.store_id = s.store_id
+      WHERE i.film_id IN (${allFilmIds.map(() => '?').join(',')})
+      GROUP BY i.film_id, i.store_id
+      ORDER BY i.film_id, i.store_id
+    `, {
+      replacements: allFilmIds,
+      type: sequelize.QueryTypes.SELECT
+    }) : [];
+
+    // Group inventory by film_id
+    const inventoryByFilm = inventoryData.reduce((acc, inv) => {
+      if (!acc[inv.film_id]) acc[inv.film_id] = [];
+      acc[inv.film_id].push({
+        store_id: inv.store_id,
+        manager_staff_id: inv.manager_staff_id,
+        address_id: inv.address_id,
+        copies_count: inv.copies_count
+      });
+      return acc;
+    }, {});
+
+    // Format response with inventory details
     const result = foundCategories.map(cat => ({
       category: cat.name,
-      films: cat.films || []
+      films: (cat.films || []).map(film => ({
+        ...film.toJSON(),
+        inventory: inventoryByFilm[film.film_id] || []
+      }))
     }));
+
     res.json(result);
   } catch (err) {
     console.error('Error in /films/by-categories:', err);
@@ -399,6 +555,196 @@ app.post('/api/films/create', express.json(), async (req, res) => {
     res.status(201).json({ success: true, message: 'Film created successfully.', film_id: film.film_id });
   } catch (err) {
     console.error('Error creating film:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// Inventory endpoints
+app.get('/api/inventory/search', async (req, res) => {
+  console.log('Searching inventory with query:', req.query);
+  const { 
+    film_title, 
+    store_id, 
+    film_id, 
+    category, 
+    page = 1, 
+    pageSize = 10,
+    groupBy = 'film_store' // 'film_store', 'film', 'store', or 'none'
+  } = req.query;
+  
+  const offset = (parseInt(page) - 1) * parseInt(pageSize);
+  let where = {};
+  let include = [
+    {
+      model: Film,
+      as: 'film',
+      attributes: ['film_id', 'title', 'description', 'release_year', 'rating'],
+      include: []
+    },
+    {
+      model: Store,
+      as: 'store',
+      attributes: ['store_id', 'manager_staff_id', 'address_id']
+    }
+  ];
+
+  // Add category filter if provided
+  if (category) {
+    include[0].include.push({
+      model: Category,
+      as: 'categories',
+      through: { attributes: [] },
+      attributes: ['category_id', 'name'],
+      where: { name: { [Sequelize.Op.like]: `%${category}%` } }
+    });
+  }
+
+  // Add film title filter
+  if (film_title) {
+    include[0].where = { title: { [Sequelize.Op.like]: `%${film_title}%` } };
+  }
+
+  // Add direct filters
+  if (store_id) where.store_id = store_id;
+  if (film_id) where.film_id = film_id;
+
+  try {
+    if (groupBy === 'film_store') {
+      // Group by both film_id and store_id with count
+      const results = await Inventory.findAll({
+        where,
+        attributes: [
+          [sequelize.col('inventory.film_id'), 'film_id'],
+          [sequelize.col('inventory.store_id'), 'store_id'],
+          [sequelize.fn('COUNT', sequelize.col('inventory.inventory_id')), 'inventory_count']
+        ],
+        group: [sequelize.col('inventory.film_id'), sequelize.col('inventory.store_id')],
+        order: [[sequelize.col('inventory.film_id'), 'ASC'], [sequelize.col('inventory.store_id'), 'ASC']],
+        limit: parseInt(pageSize),
+        offset,
+        raw: true
+      });
+      
+      // Get film and store details separately
+      const filmIds = [...new Set(results.map(r => r.film_id))];
+      const storeIds = [...new Set(results.map(r => r.store_id))];
+      
+      const films = await Film.findAll({
+        where: { film_id: { [Sequelize.Op.in]: filmIds } },
+        attributes: ['film_id', 'title', 'description', 'release_year', 'rating'],
+        raw: true
+      });
+      
+      const stores = await Store.findAll({
+        where: { store_id: { [Sequelize.Op.in]: storeIds } },
+        attributes: ['store_id', 'manager_staff_id', 'address_id'],
+        raw: true
+      });
+      
+      // Combine results with film and store details
+      const enrichedResults = results.map(result => ({
+        ...result,
+        film: films.find(f => f.film_id === result.film_id),
+        store: stores.find(s => s.store_id === result.store_id)
+      }));
+      
+      res.json({
+        page: parseInt(page),
+        pageSize: parseInt(pageSize),
+        groupBy,
+        results: enrichedResults
+      });
+    } else if (groupBy === 'film') {
+      // Group by film_id only
+      const results = await Inventory.findAll({
+        where,
+        attributes: [
+          [sequelize.col('inventory.film_id'), 'film_id'],
+          [sequelize.fn('COUNT', sequelize.col('inventory.inventory_id')), 'total_inventory_count'],
+          [sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('inventory.store_id'))), 'stores_count']
+        ],
+        group: [sequelize.col('inventory.film_id')],
+        order: [[sequelize.col('inventory.film_id'), 'ASC']],
+        limit: parseInt(pageSize),
+        offset,
+        raw: true
+      });
+      
+      // Get film details separately
+      const filmIds = results.map(r => r.film_id);
+      const films = await Film.findAll({
+        where: { film_id: { [Sequelize.Op.in]: filmIds } },
+        attributes: ['film_id', 'title', 'description', 'release_year', 'rating'],
+        raw: true
+      });
+      
+      const enrichedResults = results.map(result => ({
+        ...result,
+        film: films.find(f => f.film_id === result.film_id)
+      }));
+      
+      res.json({
+        page: parseInt(page),
+        pageSize: parseInt(pageSize),
+        groupBy,
+        results: enrichedResults
+      });
+    } else if (groupBy === 'store') {
+      // Group by store_id only
+      const results = await Inventory.findAll({
+        where,
+        attributes: [
+          [sequelize.col('inventory.store_id'), 'store_id'],
+          [sequelize.fn('COUNT', sequelize.col('inventory.inventory_id')), 'total_inventory_count'],
+          [sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('inventory.film_id'))), 'films_count']
+        ],
+        group: [sequelize.col('inventory.store_id')],
+        order: [[sequelize.col('inventory.store_id'), 'ASC']],
+        limit: parseInt(pageSize),
+        offset,
+        raw: true
+      });
+      
+      // Get store details separately
+      const storeIds = results.map(r => r.store_id);
+      const stores = await Store.findAll({
+        where: { store_id: { [Sequelize.Op.in]: storeIds } },
+        attributes: ['store_id', 'manager_staff_id', 'address_id'],
+        raw: true
+      });
+      
+      const enrichedResults = results.map(result => ({
+        ...result,
+        store: stores.find(s => s.store_id === result.store_id)
+      }));
+      
+      res.json({
+        page: parseInt(page),
+        pageSize: parseInt(pageSize),
+        groupBy,
+        results: enrichedResults
+      });
+    } else {
+      // No grouping - return individual inventory records
+      const { count, rows } = await Inventory.findAndCountAll({
+        where,
+        include,
+        limit: parseInt(pageSize),
+        offset,
+        order: [['inventory_id', 'ASC']],
+        distinct: true
+      });
+      
+      res.json({
+        page: parseInt(page),
+        pageSize: parseInt(pageSize),
+        total: count,
+        groupBy: 'none',
+        results: rows
+      });
+    }
+  } catch (err) {
+    console.error('Error searching inventory:', err);
     res.status(500).json({ error: 'Database error.' });
   }
 });
