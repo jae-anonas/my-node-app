@@ -47,10 +47,12 @@ const Rental = RentalModel(sequelize);
 const Customer = CustomerModel(sequelize);
 
 // Set up associations
-if (User.associate) User.associate({});
-if (Film.associate) Film.associate({ Category, FilmCategory, Language });
-if (Category.associate) Category.associate({ Film, FilmCategory });
-if (FilmCategory.associate) FilmCategory.associate({ Film, Category });
+const models = { User, Film, FilmCategory, Category, Language, Inventory, Store, Rental, Customer };
+
+if (User.associate) User.associate(models);
+if (Film.associate) Film.associate(models);
+if (Category.associate) Category.associate(models);
+if (FilmCategory.associate) FilmCategory.associate(models);
 
 // Add associations for Inventory and Store
 Film.hasMany(Inventory, { foreignKey: 'film_id', as: 'inventories' });

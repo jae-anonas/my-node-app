@@ -37,6 +37,15 @@ module.exports = (sequelize) => {
     role: {
       type: DataTypes.STRING(100),
       allowNull: true
+    },
+    customer_id: {
+      type: DataTypes.SMALLINT.UNSIGNED,
+      allowNull: true,
+      unique: true,
+      references: {
+        model: 'customer',
+        key: 'customer_id'
+      }
     }
   }, {
     sequelize,
@@ -57,8 +66,25 @@ module.exports = (sequelize) => {
         unique: true,
         using: "BTREE",
         fields: ["email"]
+      },
+      {
+        name: "idx_fk_customer_id",
+        unique: true,
+        using: "BTREE",
+        fields: ["customer_id"]
       }
     ]
   });
+  
+  // Define associations
+  User.associate = function(models) {
+    if (models.Customer) {
+      User.belongsTo(models.Customer, {
+        foreignKey: 'customer_id',
+        as: 'customer'
+      });
+    }
+  };
+  
   return User;
 };
