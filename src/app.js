@@ -1118,6 +1118,24 @@ app.get('/api/categories/options', async (req, res) => {
   }
 });
 
+app.get('/api/stores/options', async (req, res) => {
+  try {
+    const stores = await Store.findAll({
+      attributes: ['store_id', 'manager_staff_id', 'address_id'],
+      order: [['store_id', 'ASC']]
+    });
+    res.json(stores.map(store => ({
+      store_id: store.store_id,
+      manager_staff_id: store.manager_staff_id,
+      address_id: store.address_id,
+      label: `Store ${store.store_id}` // Friendly display name
+    })));
+  } catch (err) {
+    console.error('Error fetching stores:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
 // Customer endpoints
 app.get('/api/customers/by-id', async (req, res) => {
   const { id } = req.query;
