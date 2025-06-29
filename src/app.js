@@ -777,60 +777,89 @@ app.get('/api/inventory/search', async (req, res) => {
 
 // Rental endpoints
 app.post('/api/rentals/create', express.json(), async (req, res) => {
-  const { inventory_id, customer_id, staff_id } = req.body;
+  let { inventory_id, customer_id, staff_id } = req.body;
   
   if (!inventory_id || !customer_id || !staff_id) {
     return res.status(400).json({ error: 'inventory_id, customer_id, and staff_id are required.' });
   }
 
+  // Normalize inventory_id to array
+  const inventoryIds = Array.isArray(inventory_id) ? inventory_id : [inventory_id];
+  
+  if (inventoryIds.length === 0) {
+    return res.status(400).json({ error: 'At least one inventory_id is required.' });
+  }
+
   try {
-    // Check if inventory item exists and is available (not currently rented)
-    const availableInventory = await sequelize.query(`
-      SELECT i.inventory_id, i.film_id, i.store_id, f.title
-      FROM inventory i
-      JOIN film f ON i.film_id = f.film_id
-      WHERE i.inventory_id = ? 
-      AND NOT EXISTS (
-        SELECT 1 FROM rental r 
-        WHERE r.inventory_id = i.inventory_id 
-        AND r.return_date IS NULL
-      )
-    `, {
-      replacements: [inventory_id],
-      type: sequelize.QueryTypes.SELECT
-    });
-
-    if (!availableInventory.length) {
-      return res.status(400).json({ error: 'Inventory item not found or already rented.' });
-    }
-
     // Check if customer exists
     const customer = await Customer.findByPk(customer_id);
     if (!customer) {
       return res.status(400).json({ error: 'Customer not found.' });
     }
 
-    // Create the rental
-    const rental = await Rental.create({
-      inventory_id,
-      customer_id,
-      staff_id,
-      rental_date: new Date(),
-      last_update: new Date()
+    // Check which inventory items are available (not currently rented)
+    const availableInventory = await sequelize.query(`
+      SELECT i.inventory_id, i.film_id, i.store_id, f.title
+      FROM inventory i
+      JOIN film f ON i.film_id = f.film_id
+      WHERE i.inventory_id IN (${inventoryIds.map(() => '?').join(',')})
+      AND NOT EXISTS (
+        SELECT 1 FROM rental r 
+        WHERE r.inventory_id = i.inventory_id 
+        AND r.return_date IS NULL
+      )
+    `, {
+      replacements: inventoryIds,
+      type: sequelize.QueryTypes.SELECT
     });
 
-    res.status(201).json({ 
-      success: true, 
-      message: 'Rental created successfully.',
-      rental: {
-        rental_id: rental.rental_id,
-        inventory_id: rental.inventory_id,
-        customer_id: rental.customer_id,
-        staff_id: rental.staff_id,
-        rental_date: rental.rental_date,
-        film_title: availableInventory[0].title
-      }
-    });
+    if (availableInventory.length === 0) {
+      return res.status(400).json({ error: 'No inventory items are available for rental.' });
+    }
+
+    // Check for unavailable items
+    const availableIds = availableInventory.map(item => item.inventory_id);
+    const unavailableIds = inventoryIds.filter(id => !availableIds.includes(id));
+
+    // Create rentals for all available inventory items
+    const rentalPromises = availableInventory.map(item => 
+      Rental.create({
+        inventory_id: item.inventory_id,
+        customer_id,
+        staff_id,
+        rental_date: new Date(),
+        last_update: new Date()
+      })
+    );
+
+    const createdRentals = await Promise.all(rentalPromises);
+
+    // Format response with rental details
+    const rentalsWithDetails = createdRentals.map((rental, index) => ({
+      rental_id: rental.rental_id,
+      inventory_id: rental.inventory_id,
+      customer_id: rental.customer_id,
+      staff_id: rental.staff_id,
+      rental_date: rental.rental_date,
+      film_title: availableInventory[index].title,
+      store_id: availableInventory[index].store_id
+    }));
+
+    const response = {
+      success: true,
+      message: `${createdRentals.length} rental(s) created successfully.`,
+      rentals: rentalsWithDetails,
+      created_count: createdRentals.length,
+      requested_count: inventoryIds.length
+    };
+
+    // Include information about unavailable items if any
+    if (unavailableIds.length > 0) {
+      response.warning = `${unavailableIds.length} inventory item(s) were not available for rental.`;
+      response.unavailable_inventory_ids = unavailableIds;
+    }
+
+    res.status(201).json(response);
   } catch (err) {
     console.error('Error creating rental:', err);
     res.status(500).json({ error: 'Database error.' });
