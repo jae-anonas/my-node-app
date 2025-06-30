@@ -112,6 +112,81 @@ This will output the static files to `dist/my-angular-app/browser`, which are se
 - MySQL SSL is required for Azure Database for MySQL. The DigiCertGlobalRootCA.crt.pem file must be present and referenced by `DB_SSL_CA`.
 - For troubleshooting Azure deployment, see the comments in `web.config` and the project documentation.
 
+## API Endpoints
+
+### User Management
+- `POST /api/signup` - Create new user account (also creates linked customer record)
+- `POST /api/signin` - User authentication (returns user with customer data)
+- `PUT /api/users/edit/:user_id` - Update user profile
+
+### Film Management
+- `GET /api/films` - List films with pagination, filtering, and inventory details
+- `GET /api/films/:film_id` - Get film details by ID
+- `POST /api/films` - Create new film
+- `PUT /api/films/:film_id` - Update film details
+- `DELETE /api/films/:film_id` - Delete film
+
+### Inventory Management
+- `GET /api/inventory/search` - Search inventory with grouping/filtering options
+- `GET /api/inventory/available-in-store` - Check film availability in specific store
+- `POST /api/inventory/create` - Create new inventory record(s) - supports quantity parameter for bulk creation
+- `PUT /api/inventory/update/:inventory_id` - Update inventory record (only if not currently rented)
+
+### Rental Management
+- `POST /api/rentals/create` - Create rental(s) - supports batch creation with array of inventory_ids
+- `PUT /api/rentals/return/:rental_id` - Return a rental
+- `GET /api/rentals/active` - List active rentals for a customer
+- `GET /api/rentals/history` - List rental history for a customer
+- `GET /api/rentals/overdue` - List overdue rentals
+
+### Customer Management
+- `POST /api/customers` - Create new customer (typically done via signup)
+- `PUT /api/customers/edit/:customer_id` - Update customer details
+- `GET /api/customers/by-id/:customer_id` - Get customer by ID
+- `GET /api/customers` - List customers with pagination
+
+### Reference Data
+- `GET /api/categories` - List all film categories
+- `GET /api/languages` - List all languages
+- `GET /api/stores/options` - List stores for dropdown options
+
+### Request/Response Examples
+
+#### Create Inventory Record
+```http
+POST /api/inventory/create
+Content-Type: application/json
+
+{
+  "film_id": 1,
+  "store_id": 1,
+  "quantity": 5
+}
+```
+
+#### Update Inventory Record
+```http
+PUT /api/inventory/update/123
+Content-Type: application/json
+
+{
+  "film_id": 2,
+  "store_id": 1
+}
+```
+
+#### Batch Rental Creation
+```http
+POST /api/rentals/create
+Content-Type: application/json
+
+{
+  "inventory_id": [101, 102, 103],
+  "customer_id": 5,
+  "staff_id": 1
+}
+```
+
 ## License
 
 This project is licensed under the MIT License.

@@ -902,6 +902,176 @@ app.get('/api/inventory/available-in-store', async (req, res) => {
   }
 });
 
+// Create new inventory record(s)
+app.post('/api/inventory/create', express.json(), async (req, res) => {
+  const { film_id, store_id, quantity = 1 } = req.body;
+  
+  if (!film_id || !store_id) {
+    return res.status(400).json({ error: 'film_id and store_id are required.' });
+  }
+  
+  // Validate quantity
+  const qty = parseInt(quantity);
+  if (isNaN(qty) || qty < 1 || qty > 100) {
+    return res.status(400).json({ error: 'quantity must be a number between 1 and 100.' });
+  }
+  
+  try {
+    // Validate that film exists
+    const film = await Film.findByPk(film_id);
+    if (!film) {
+      return res.status(404).json({ error: 'Film not found.' });
+    }
+    
+    // Validate that store exists
+    const store = await Store.findByPk(store_id);
+    if (!store) {
+      return res.status(404).json({ error: 'Store not found.' });
+    }
+    
+    // Create multiple inventory records based on quantity
+    const inventoryPromises = [];
+    for (let i = 0; i < qty; i++) {
+      inventoryPromises.push(
+        Inventory.create({
+          film_id: parseInt(film_id),
+          store_id: parseInt(store_id)
+        })
+      );
+    }
+    
+    const createdInventories = await Promise.all(inventoryPromises);
+    
+    // Get the created inventory records with related data
+    const inventoryIds = createdInventories.map(inv => inv.inventory_id);
+    const inventoriesWithData = await Inventory.findAll({
+      where: {
+        inventory_id: inventoryIds
+      },
+      include: [
+        {
+          model: Film,
+          as: 'film',
+          attributes: ['title', 'rental_rate', 'rental_duration']
+        },
+        {
+          model: Store,
+          as: 'store',
+          attributes: ['manager_staff_id', 'address_id']
+        }
+      ],
+      order: [['inventory_id', 'ASC']]
+    });
+    
+    res.status(201).json({
+      message: `${qty} inventory record(s) created successfully.`,
+      quantity_created: qty,
+      film_title: film.title,
+      store_id: store.store_id,
+      inventories: inventoriesWithData,
+      inventory_ids: inventoryIds
+    });
+  } catch (err) {
+    console.error('Error creating inventory:', err);
+    
+    if (err.name === 'SequelizeForeignKeyConstraintError') {
+      return res.status(400).json({ error: 'Invalid film_id or store_id.' });
+    }
+    
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// Update inventory record
+app.put('/api/inventory/update/:inventory_id', express.json(), async (req, res) => {
+  const { inventory_id } = req.params;
+  const { film_id, store_id } = req.body;
+  
+  if (!inventory_id) {
+    return res.status(400).json({ error: 'inventory_id is required in URL path.' });
+  }
+  
+  if (!film_id && !store_id) {
+    return res.status(400).json({ error: 'At least one field (film_id or store_id) must be provided to update.' });
+  }
+  
+  try {
+    // Find the inventory record
+    const inventory = await Inventory.findByPk(inventory_id);
+    if (!inventory) {
+      return res.status(404).json({ error: 'Inventory record not found.' });
+    }
+    
+    // Check if inventory is currently rented
+    const activeRental = await Rental.findOne({
+      where: {
+        inventory_id: inventory_id,
+        return_date: null
+      }
+    });
+    
+    if (activeRental) {
+      return res.status(409).json({ 
+        error: 'Cannot update inventory record that is currently rented.',
+        rental_id: activeRental.rental_id
+      });
+    }
+    
+    // Prepare update data
+    const updateData = {};
+    
+    if (film_id) {
+      // Validate that film exists
+      const film = await Film.findByPk(film_id);
+      if (!film) {
+        return res.status(404).json({ error: 'Film not found.' });
+      }
+      updateData.film_id = parseInt(film_id);
+    }
+    
+    if (store_id) {
+      // Validate that store exists
+      const store = await Store.findByPk(store_id);
+      if (!store) {
+        return res.status(404).json({ error: 'Store not found.' });
+      }
+      updateData.store_id = parseInt(store_id);
+    }
+    
+    // Update the inventory record
+    await inventory.update(updateData);
+    
+    // Return the updated inventory with related data
+    const updatedInventory = await Inventory.findByPk(inventory_id, {
+      include: [
+        {
+          model: Film,
+          as: 'film',
+          attributes: ['title', 'rental_rate', 'rental_duration']
+        },
+        {
+          model: Store,
+          as: 'store',
+          attributes: ['manager_staff_id', 'address_id']
+        }
+      ]
+    });
+    
+    res.json({
+      message: 'Inventory record updated successfully.',
+      inventory: updatedInventory
+    });
+  } catch (err) {
+    console.error('Error updating inventory:', err);
+    
+    if (err.name === 'SequelizeForeignKeyConstraintError') {
+      return res.status(400).json({ error: 'Invalid film_id or store_id.' });
+    }
+    
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
 // Rental endpoints
 app.post('/api/rentals/create', express.json(), async (req, res) => {
   let { inventory_id, customer_id, staff_id = 1 } = req.body;
