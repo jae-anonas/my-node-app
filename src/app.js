@@ -106,7 +106,7 @@ app.post('/api/signin', express.json(), async (req, res) => {
         {
           model: Customer,
           as: 'customer',
-          attributes: ['customer_id', 'first_name', 'last_name', 'email', 'active', 'store_id']
+          attributes: ['customer_id', 'first_name', 'last_name', 'email', 'active', 'store_id', 'address_id']
         }
       ]
     });
@@ -131,20 +131,65 @@ app.post('/api/signin', express.json(), async (req, res) => {
 
 // /signup endpoint using Sequelize
 app.post('/api/signup', express.json(), async (req, res) => {
-  const { name, password, email } = req.body.userData || req.body;
+  const { name, password, email, first_name, last_name, store_id = 1 } = req.body.userData || req.body;
   if (!name || !password || !email) {
-    return res.status(400).json({ error: 'Username and password are required.' });
+    return res.status(400).json({ error: 'Username, password, and email are required.' });
   }
   const hash = crypto.createHash('sha256').update(password).digest('hex');
+  
+  // Use transaction to ensure both User and Customer are created together
+  const transaction = await sequelize.transaction();
+  
   try {
-    const existing = await User.findOne({ where: { [Sequelize.Op.or]: [{ name }, { email }] } });
+    const existing = await User.findOne({ 
+      where: { [Sequelize.Op.or]: [{ name }, { email }] },
+      transaction
+    });
     if (existing) {
-      return res.status(409).json({ error: 'Username already exists.' });
+      await transaction.rollback();
+      return res.status(409).json({ error: 'Username or email already exists.' });
     }
-    await User.create({ name, password_hash: hash, email });
-    return res.status(201).json({ success: true, message: 'User created successfully.' });
+    
+    // Create Customer record first
+    const customer = await Customer.create({
+      first_name: first_name || name, // Use username as first_name if not provided
+      last_name: last_name || '', // Default to empty string if not provided
+      email,
+      store_id, // Default to store 1 if not provided
+      address_id: 1, // Default address_id
+      active: 1,
+      create_date: new Date(),
+      last_update: new Date()
+    }, { transaction });
+    
+    // Create User record with reference to Customer
+    const user = await User.create({ 
+      name, 
+      password_hash: hash, 
+      email,
+      customer_id: customer.customer_id,
+      first_name: first_name || name,
+      last_name: last_name || '',
+      role: 'customer'
+    }, { transaction });
+    
+    await transaction.commit();
+    
+    return res.status(201).json({ 
+      success: true, 
+      message: 'User and customer created successfully.',
+      user_id: user.id,
+      customer_id: customer.customer_id
+    });
   } catch (err) {
-    console.error('Error creating user:', err);
+    await transaction.rollback();
+    console.error('Error creating user and customer:', err);
+    if (err.name === 'SequelizeValidationError') {
+      return res.status(400).json({ error: 'Validation error: ' + err.message });
+    }
+    if (err.name === 'SequelizeForeignKeyConstraintError') {
+      return res.status(400).json({ error: 'Invalid store_id provided.' });
+    }
     return res.status(500).json({ error: 'Database error.' });
   }
 });
@@ -775,12 +820,94 @@ app.get('/api/inventory/search', async (req, res) => {
   }
 });
 
+// Check film availability in store endpoint
+app.get('/api/inventory/available-in-store', async (req, res) => {
+  const { film_id, store_id } = req.query;
+  
+  if (!film_id || !store_id) {
+    return res.status(400).json({ error: 'film_id and store_id are required query parameters.' });
+  }
+  
+  try {
+    // Check if film and store exist
+    const film = await Film.findByPk(film_id, {
+      attributes: ['film_id', 'title', 'rental_rate', 'rental_duration']
+    });
+    
+    if (!film) {
+      return res.status(404).json({ error: 'Film not found.' });
+    }
+    
+    const store = await Store.findByPk(store_id, {
+      attributes: ['store_id', 'manager_staff_id', 'address_id']
+    });
+    
+    if (!store) {
+      return res.status(404).json({ error: 'Store not found.' });
+    }
+    
+    // Get inventory details for this film in this store
+    const inventoryDetails = await sequelize.query(`
+      SELECT 
+        i.inventory_id,
+        i.film_id,
+        i.store_id,
+        CASE 
+          WHEN EXISTS (
+            SELECT 1 FROM rental r 
+            WHERE r.inventory_id = i.inventory_id 
+            AND r.return_date IS NULL
+          ) THEN 'rented'
+          ELSE 'available'
+        END as status
+      FROM inventory i
+      WHERE i.film_id = ? AND i.store_id = ?
+      ORDER BY i.inventory_id
+    `, {
+      replacements: [film_id, store_id],
+      type: sequelize.QueryTypes.SELECT
+    });
+    
+    // Count available and rented copies
+    const availableCopies = inventoryDetails.filter(item => item.status === 'available');
+    const rentedCopies = inventoryDetails.filter(item => item.status === 'rented');
+    
+    const response = {
+      film: {
+        film_id: film.film_id,
+        title: film.title,
+        rental_rate: film.rental_rate,
+        rental_duration: film.rental_duration
+      },
+      store: {
+        store_id: store.store_id,
+        manager_staff_id: store.manager_staff_id,
+        address_id: store.address_id
+      },
+      availability: {
+        is_available: availableCopies.length > 0,
+        total_copies: inventoryDetails.length,
+        available_copies: availableCopies.length,
+        rented_copies: rentedCopies.length,
+        available_inventory_ids: availableCopies.map(item => item.inventory_id),
+        rented_inventory_ids: rentedCopies.map(item => item.inventory_id)
+      },
+      inventory_details: inventoryDetails
+    };
+    
+    res.json(response);
+  } catch (err) {
+    console.error('Error checking film availability in store:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
 // Rental endpoints
 app.post('/api/rentals/create', express.json(), async (req, res) => {
-  let { inventory_id, customer_id, staff_id } = req.body;
+  let { inventory_id, customer_id, staff_id = 1 } = req.body;
   
-  if (!inventory_id || !customer_id || !staff_id) {
-    return res.status(400).json({ error: 'inventory_id, customer_id, and staff_id are required.' });
+  if (!inventory_id || !customer_id) {
+    return res.status(400).json({ error: 'inventory_id and customer_id are required.' });
   }
 
   // Normalize inventory_id to array
@@ -946,7 +1073,7 @@ app.get('/api/rentals/active', async (req, res) => {
             {
               model: Film,
               as: 'film',
-              attributes: ['film_id', 'title', 'rental_rate']
+              attributes: ['film_id', 'title', 'rental_rate', 'rental_duration']
             },
             {
               model: Store,
