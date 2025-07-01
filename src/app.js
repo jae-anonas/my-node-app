@@ -259,6 +259,11 @@ app.delete('/api/users/delete/:id', async (req, res) => {
     if (user.customer_id) {
       const customer = await Customer.findByPk(user.customer_id);
       if (customer) {
+        // Remove user's reference to customer before deleting customer
+        user.customer_id = null;
+        await user.save();
+        // Delete all rentals referencing this customer
+        await Rental.destroy({ where: { customer_id: customer.customer_id } });
         await customer.destroy();
       }
     }
