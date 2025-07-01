@@ -18,6 +18,7 @@ const InventoryModel = require('../models/inventory');
 const StoreModel = require('../models/store');
 const RentalModel = require('../models/rental');
 const CustomerModel = require('../models/customer');
+const { release } = require('os');
 
 const sequelize = new Sequelize(
   process.env.DB_DATABASE,
@@ -238,6 +239,34 @@ app.put('/api/users/edit', express.json(), async (req, res) => {
     res.json({ success: true, message: 'User updated successfully.' });
   } catch (err) {
     console.error('Error updating user:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// Endpoint to delete a user by id and their related customer record
+app.delete('/api/users/delete/:id', async (req, res) => {
+  const { id } = req.params;
+  if (!id) {
+    return res.status(400).json({ error: 'User id is required in URL path.' });
+  }
+  try {
+    // Check if user exists
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    // Delete related customer if exists
+    if (user.customer_id) {
+      const customer = await Customer.findByPk(user.customer_id);
+      if (customer) {
+        await customer.destroy();
+      }
+    }
+    // Delete the user
+    await user.destroy();
+    res.json({ success: true, message: 'User and related customer deleted successfully.' });
+  } catch (err) {
+    console.error('Error deleting user:', err);
     res.status(500).json({ error: 'Database error.' });
   }
 });
@@ -670,55 +699,63 @@ app.get('/api/inventory/search', async (req, res) => {
     });
   }
 
-  // Add film title filter
-  if (film_title) {
-    include[0].where = { title: { [Sequelize.Op.like]: `%${film_title}%` } };
-  }
-
   // Add direct filters
   if (store_id) where.store_id = store_id;
   if (film_id) where.film_id = film_id;
 
+  // For grouped queries, manually add film_title filter
+  let filmTitleFilter = '';
+  let replacements = [];
+  if (film_title) {
+    filmTitleFilter = ' AND f.title LIKE ?';
+    replacements.push(`%${film_title}%`);
+  }
+
   try {
     if (groupBy === 'film_store') {
-      // Group by both film_id and store_id with count
-      const results = await Inventory.findAll({
-        where,
-        attributes: [
-          [sequelize.col('inventory.film_id'), 'film_id'],
-          [sequelize.col('inventory.store_id'), 'store_id'],
-          [sequelize.fn('COUNT', sequelize.col('inventory.inventory_id')), 'inventory_count']
-        ],
-        group: [sequelize.col('inventory.film_id'), sequelize.col('inventory.store_id')],
-        order: [[sequelize.col('inventory.film_id'), 'ASC'], [sequelize.col('inventory.store_id'), 'ASC']],
-        limit: parseInt(pageSize),
-        offset,
-        raw: true
+      // Group by both film_id and store_id with count, join film for title filter
+      let baseQuery = `
+        SELECT 
+          i.film_id,
+          i.store_id,
+          COUNT(i.inventory_id) as inventory_count
+        FROM inventory i
+        JOIN film f ON i.film_id = f.film_id
+        ${store_id ? 'WHERE i.store_id = ?' : 'WHERE 1=1'}
+        ${film_id ? ' AND i.film_id = ?' : ''}
+        ${filmTitleFilter}
+        GROUP BY i.film_id, i.store_id
+        ORDER BY i.film_id, i.store_id
+        LIMIT ? OFFSET ?
+      `;
+      let baseReplacements = [];
+      if (store_id) baseReplacements.push(store_id);
+      if (film_id) baseReplacements.push(film_id);
+      baseReplacements = baseReplacements.concat(replacements);
+      baseReplacements.push(parseInt(pageSize), offset);
+      const results = await sequelize.query(baseQuery, {
+        replacements: baseReplacements,
+        type: sequelize.QueryTypes.SELECT
       });
       
       // Get film and store details separately
       const filmIds = [...new Set(results.map(r => r.film_id))];
       const storeIds = [...new Set(results.map(r => r.store_id))];
-      
       const films = await Film.findAll({
         where: { film_id: { [Sequelize.Op.in]: filmIds } },
         attributes: ['film_id', 'title', 'description', 'release_year', 'rating'],
         raw: true
       });
-      
       const stores = await Store.findAll({
         where: { store_id: { [Sequelize.Op.in]: storeIds } },
         attributes: ['store_id', 'manager_staff_id', 'address_id'],
         raw: true
       });
-      
-      // Combine results with film and store details
       const enrichedResults = results.map(result => ({
         ...result,
         film: films.find(f => f.film_id === result.film_id),
         store: stores.find(s => s.store_id === result.store_id)
       }));
-      
       res.json({
         page: parseInt(page),
         pageSize: parseInt(pageSize),
@@ -726,19 +763,29 @@ app.get('/api/inventory/search', async (req, res) => {
         results: enrichedResults
       });
     } else if (groupBy === 'film') {
-      // Group by film_id only
-      const results = await Inventory.findAll({
-        where,
-        attributes: [
-          [sequelize.col('inventory.film_id'), 'film_id'],
-          [sequelize.fn('COUNT', sequelize.col('inventory.inventory_id')), 'total_inventory_count'],
-          [sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('inventory.store_id'))), 'stores_count']
-        ],
-        group: [sequelize.col('inventory.film_id')],
-        order: [[sequelize.col('inventory.film_id'), 'ASC']],
-        limit: parseInt(pageSize),
-        offset,
-        raw: true
+      // Group by film_id only, join film for title filter
+      let baseQuery = `
+        SELECT 
+          i.film_id,
+          COUNT(i.inventory_id) as total_inventory_count,
+          COUNT(DISTINCT i.store_id) as stores_count
+        FROM inventory i
+        JOIN film f ON i.film_id = f.film_id
+        ${store_id ? 'WHERE i.store_id = ?' : 'WHERE 1=1'}
+        ${film_id ? ' AND i.film_id = ?' : ''}
+        ${filmTitleFilter}
+        GROUP BY i.film_id
+        ORDER BY i.film_id
+        LIMIT ? OFFSET ?
+      `;
+      let baseReplacements = [];
+      if (store_id) baseReplacements.push(store_id);
+      if (film_id) baseReplacements.push(film_id);
+      baseReplacements = baseReplacements.concat(replacements);
+      baseReplacements.push(parseInt(pageSize), offset);
+      const results = await sequelize.query(baseQuery, {
+        replacements: baseReplacements,
+        type: sequelize.QueryTypes.SELECT
       });
       
       // Get film details separately
@@ -748,12 +795,10 @@ app.get('/api/inventory/search', async (req, res) => {
         attributes: ['film_id', 'title', 'description', 'release_year', 'rating'],
         raw: true
       });
-      
       const enrichedResults = results.map(result => ({
         ...result,
         film: films.find(f => f.film_id === result.film_id)
       }));
-      
       res.json({
         page: parseInt(page),
         pageSize: parseInt(pageSize),
@@ -761,19 +806,29 @@ app.get('/api/inventory/search', async (req, res) => {
         results: enrichedResults
       });
     } else if (groupBy === 'store') {
-      // Group by store_id only
-      const results = await Inventory.findAll({
-        where,
-        attributes: [
-          [sequelize.col('inventory.store_id'), 'store_id'],
-          [sequelize.fn('COUNT', sequelize.col('inventory.inventory_id')), 'total_inventory_count'],
-          [sequelize.fn('COUNT', sequelize.fn('DISTINCT', sequelize.col('inventory.film_id'))), 'films_count']
-        ],
-        group: [sequelize.col('inventory.store_id')],
-        order: [[sequelize.col('inventory.store_id'), 'ASC']],
-        limit: parseInt(pageSize),
-        offset,
-        raw: true
+      // Group by store_id only, join film for title filter
+      let baseQuery = `
+        SELECT 
+          i.store_id,
+          COUNT(i.inventory_id) as total_inventory_count,
+          COUNT(DISTINCT i.film_id) as films_count
+        FROM inventory i
+        JOIN film f ON i.film_id = f.film_id
+        ${store_id ? 'WHERE i.store_id = ?' : 'WHERE 1=1'}
+        ${film_id ? ' AND i.film_id = ?' : ''}
+        ${filmTitleFilter}
+        GROUP BY i.store_id
+        ORDER BY i.store_id
+        LIMIT ? OFFSET ?
+      `;
+      let baseReplacements = [];
+      if (store_id) baseReplacements.push(store_id);
+      if (film_id) baseReplacements.push(film_id);
+      baseReplacements = baseReplacements.concat(replacements);
+      baseReplacements.push(parseInt(pageSize), offset);
+      const results = await sequelize.query(baseQuery, {
+        replacements: baseReplacements,
+        type: sequelize.QueryTypes.SELECT
       });
       
       // Get store details separately
@@ -783,12 +838,10 @@ app.get('/api/inventory/search', async (req, res) => {
         attributes: ['store_id', 'manager_staff_id', 'address_id'],
         raw: true
       });
-      
       const enrichedResults = results.map(result => ({
         ...result,
         store: stores.find(s => s.store_id === result.store_id)
       }));
-      
       res.json({
         page: parseInt(page),
         pageSize: parseInt(pageSize),
@@ -797,6 +850,9 @@ app.get('/api/inventory/search', async (req, res) => {
       });
     } else {
       // No grouping - return individual inventory records
+      if (film_title) {
+        include[0].where = { title: { [Sequelize.Op.like]: `%${film_title}%` } };
+      }
       const { count, rows } = await Inventory.findAndCountAll({
         where,
         include,
@@ -805,7 +861,6 @@ app.get('/api/inventory/search', async (req, res) => {
         order: [['inventory_id', 'ASC']],
         distinct: true
       });
-      
       res.json({
         page: parseInt(page),
         pageSize: parseInt(pageSize),
@@ -1433,6 +1488,24 @@ app.get('/api/stores/options', async (req, res) => {
   }
 });
 
+// Dropdown endpoint for films (title + film_id)
+app.get('/api/films/options', async (req, res) => {
+  try {
+    const films = await Film.findAll({
+      attributes: ['film_id', 'title', 'release_year'],
+      order: [['title', 'ASC']]
+    });
+    res.json(films.map(film => ({
+      film_id: film.film_id,
+      title: film.title,
+      release_year: film.release_year
+    })));
+  } catch (err) {
+    console.error('Error fetching film options:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
 // Customer endpoints
 app.get('/api/customers/by-id', async (req, res) => {
   const { id } = req.query;
@@ -1533,6 +1606,32 @@ app.get('/api/customers', async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching customers:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// Endpoint to delete a film by film_id
+app.delete('/api/films/delete/:film_id', async (req, res) => {
+  const { film_id } = req.params;
+  if (!film_id) {
+    return res.status(400).json({ error: 'film_id is required in URL path.' });
+  }
+  try {
+    // Check if film exists
+    const film = await Film.findByPk(film_id);
+    if (!film) {
+      return res.status(404).json({ error: 'Film not found.' });
+    }
+    // Optionally: Remove associations (categories, inventory, etc.)
+    // Remove film-category associations
+    if (film.setCategories) await film.setCategories([]);
+    // Remove inventory records for this film
+    await Inventory.destroy({ where: { film_id } });
+    // Delete the film
+    await film.destroy();
+    res.json({ success: true, message: 'Film deleted successfully.' });
+  } catch (err) {
+    console.error('Error deleting film:', err);
     res.status(500).json({ error: 'Database error.' });
   }
 });
