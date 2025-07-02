@@ -1,12 +1,18 @@
 runtime: nodejs22
 
 env_variables:
-  DB_HOST: "ais-cloud-assessment1-jae-mysql.mysql.database.azure.com"
+  DB_HOST: "34.151.75.79"
   DB_USER: "jae_admin"
   DB_PASSWORD: "Fhxvgdwzup8#"
   DB_DATABASE: "sakila"
   DB_SSL_CA: "DigiCertGlobalRootCA.crt.pem"
   NODE_ENV: "production"
+  GCP_DEPLOYMENT: "true"  # Set to true for GCP deployments
+  SOCKET_PATH: "/cloudsql/ais-projects:australia-southeast1:ais-cloud-assessment1-jae-gcp"  # Replace with your Cloud SQL instance connection name
+  PORT: "8080"
+
+automatic_scaling:
+  max_instances: 3
 
 handlers:
   - url: /.*

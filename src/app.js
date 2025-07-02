@@ -20,21 +20,32 @@ const RentalModel = require('../models/rental');
 const CustomerModel = require('../models/customer');
 const { release } = require('os');
 
+const isGcpDeployment = process.env.GCP_DEPLOYMENT === 'true';
+const socketPath = process.env.SOCKET_PATH;
+
 const sequelize = new Sequelize(
   process.env.DB_DATABASE,
   process.env.DB_USER,
   process.env.DB_PASSWORD,
-  {
-    host: process.env.DB_HOST,
-    dialect: 'mysql',
-    ...(process.env.NODE_ENV === 'production' && {
-      dialectOptions: {
-        ssl: {
-          ca: fs.readFileSync(process.env.DB_SSL_CA || './DigiCertGlobalRootCA.crt.pem')
+  isGcpDeployment
+    ? {
+        dialect: 'mysql',
+        // Use socketPath for GCP App Engine Standard
+        dialectOptions: {
+          socketPath: process.env.SOCKET_PATH,
         }
       }
-    })
-  }
+    : {
+        host: process.env.DB_HOST,
+        dialect: 'mysql',
+        ...(process.env.NODE_ENV === 'production' && {
+          dialectOptions: {
+            ssl: {
+              ca: fs.readFileSync(process.env.DB_SSL_CA || './DigiCertGlobalRootCA.crt.pem')
+            }
+          }
+        })
+      }
 );
 
 const User = UserModel(sequelize);
