@@ -756,10 +756,35 @@ app.get('/api/inventory/search', async (req, res) => {
         attributes: ['store_id', 'manager_staff_id', 'address_id'],
         raw: true
       });
+      // Fetch all inventory details for these films and stores
+      const inventoryDetails = await Inventory.findAll({
+        where: {
+          film_id: { [Sequelize.Op.in]: filmIds },
+          store_id: { [Sequelize.Op.in]: storeIds }
+        },
+        attributes: ['inventory_id', 'film_id', 'store_id'],
+        order: [['film_id', 'ASC'], ['store_id', 'ASC'], ['inventory_id', 'ASC']],
+        raw: true
+      });
+      // Group inventory details by film_id and then by store_id
+      const inventoryByFilmStore = {};
+      for (const inv of inventoryDetails) {
+        if (!inventoryByFilmStore[inv.film_id]) inventoryByFilmStore[inv.film_id] = {};
+        if (!inventoryByFilmStore[inv.film_id][inv.store_id]) inventoryByFilmStore[inv.film_id][inv.store_id] = [];
+        inventoryByFilmStore[inv.film_id][inv.store_id].push(inv);
+      }
       const enrichedResults = results.map(result => ({
         ...result,
         film: films.find(f => f.film_id === result.film_id),
-        store: stores.find(s => s.store_id === result.store_id)
+        store: stores.find(s => s.store_id === result.store_id),
+        inventory_by_store: [
+          {
+            store_id: result.store_id,
+            inventories: inventoryByFilmStore[result.film_id] && inventoryByFilmStore[result.film_id][result.store_id]
+              ? inventoryByFilmStore[result.film_id][result.store_id]
+              : []
+          }
+        ]
       }));
       res.json({
         page: parseInt(page),
@@ -792,7 +817,6 @@ app.get('/api/inventory/search', async (req, res) => {
         replacements: baseReplacements,
         type: sequelize.QueryTypes.SELECT
       });
-      
       // Get film details separately
       const filmIds = results.map(r => r.film_id);
       const films = await Film.findAll({
@@ -800,9 +824,29 @@ app.get('/api/inventory/search', async (req, res) => {
         attributes: ['film_id', 'title', 'description', 'release_year', 'rating'],
         raw: true
       });
+      // Fetch all inventory details for these films
+      const inventoryDetails = await Inventory.findAll({
+        where: {
+          film_id: { [Sequelize.Op.in]: filmIds }
+        },
+        attributes: ['inventory_id', 'film_id', 'store_id'],
+        order: [['film_id', 'ASC'], ['store_id', 'ASC'], ['inventory_id', 'ASC']],
+        raw: true
+      });
+      // Group inventory details by film_id and then by store_id
+      const inventoryByFilm = {};
+      for (const inv of inventoryDetails) {
+        if (!inventoryByFilm[inv.film_id]) inventoryByFilm[inv.film_id] = {};
+        if (!inventoryByFilm[inv.film_id][inv.store_id]) inventoryByFilm[inv.film_id][inv.store_id] = [];
+        inventoryByFilm[inv.film_id][inv.store_id].push(inv);
+      }
       const enrichedResults = results.map(result => ({
         ...result,
-        film: films.find(f => f.film_id === result.film_id)
+        film: films.find(f => f.film_id === result.film_id),
+        inventory_by_store: Object.entries(inventoryByFilm[result.film_id] || {}).map(([store_id, inventories]) => ({
+          store_id: parseInt(store_id),
+          inventories
+        }))
       }));
       res.json({
         page: parseInt(page),
@@ -1637,6 +1681,29 @@ app.delete('/api/films/delete/:film_id', async (req, res) => {
     res.json({ success: true, message: 'Film deleted successfully.' });
   } catch (err) {
     console.error('Error deleting film:', err);
+    res.status(500).json({ error: 'Database error.' });
+  }
+});
+
+// Endpoint to delete an inventory record and related rentals
+app.delete('/api/inventory/delete/:inventory_id', async (req, res) => {
+  const { inventory_id } = req.params;
+  if (!inventory_id) {
+    return res.status(400).json({ error: 'inventory_id is required in URL path.' });
+  }
+  try {
+    // Check if inventory exists
+    const inventory = await Inventory.findByPk(inventory_id);
+    if (!inventory) {
+      return res.status(404).json({ error: 'Inventory record not found.' });
+    }
+    // Delete related rentals
+    await Rental.destroy({ where: { inventory_id } });
+    // Delete the inventory record
+    await inventory.destroy();
+    res.json({ success: true, message: 'Inventory and related rentals deleted successfully.' });
+  } catch (err) {
+    console.error('Error deleting inventory:', err);
     res.status(500).json({ error: 'Database error.' });
   }
 });

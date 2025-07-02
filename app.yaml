@@ -1,4 +1,12 @@
-runtime: nodejs20
+runtime: nodejs22
+
+env_variables:
+  DB_HOST: "ais-cloud-assessment1-jae-mysql.mysql.database.azure.com"
+  DB_USER: "jae_admin"
+  DB_PASSWORD: "Fhxvgdwzup8#"
+  DB_DATABASE: "sakila"
+  DB_SSL_CA: "DigiCertGlobalRootCA.crt.pem"
+  NODE_ENV: "production"
 
 handlers:
   - url: /.*
