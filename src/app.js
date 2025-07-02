@@ -198,8 +198,28 @@ app.post('/api/signup', express.json(), async (req, res) => {
 // User endpoints
 app.get('/api/users', async (req, res) => {
   try {
-    const users = await User.findAll();
-    res.json(users);
+    // Fetch users with their associated customer
+    const users = await User.findAll({
+      include: [
+        {
+          model: Customer,
+          as: 'customer',
+          attributes: ['first_name', 'last_name']
+        }
+      ]
+    });
+    // For each user, replace first_name and last_name with those from customer (if exists)
+    const usersWithCustomerNames = users.map(user => {
+      const userJson = user.toJSON();
+      if (userJson.customer) {
+        userJson.first_name = userJson.customer.first_name;
+        userJson.last_name = userJson.customer.last_name;
+      } 
+      // Optionally, remove the customer object if you don't want to expose it
+      // delete userJson.customer;
+      return userJson;
+    });
+    res.json(usersWithCustomerNames);
   } catch (err) {
     console.error('Error fetching users:', err);
     res.status(500).json({ error: 'Database error.' });
